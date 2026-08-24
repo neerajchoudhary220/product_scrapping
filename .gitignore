@@ -52,7 +52,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-/data/*.json
+data/*.json
 
 # ========================================
 # Temporary files
