@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScrapeHub Pro | Real-Time Web Scraping Studio</title>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Socket.io Client Library -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-layout">
+    
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
+        <div class="brand-text">
+          <h2>ScrapeHub</h2>
+          <span>PRO STUDIO v1.0</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="tab-dashboard">
+          <i class="fa-solid fa-gauge-high"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="tab-scrape-ids">
+          <i class="fa-solid fa-list-check"></i>
+          <span>Scrape Product IDs</span>
+        </button>
+        <button class="nav-item" data-tab="tab-scrape-details">
+          <i class="fa-solid fa-boxes-packing"></i>
+          <span>Scrape Details</span>
+        </button>
+        <button class="nav-item" data-tab="tab-update-price">
+          <i class="fa-solid fa-tags"></i>
+          <span>Price Updater</span>
+        </button>
+        <button class="nav-item" data-tab="tab-json-studio">
+          <i class="fa-solid fa-code"></i>
+          <span>JSON Studio</span>
+        </button>
+        <button class="nav-item" data-tab="tab-terminal">
+          <i class="fa-solid fa-terminal"></i>
+          <span>Live Console</span>
+          <span class="badge-log-count" id="badge-log-count">0</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="session-card" id="session-card">
+          <i class="fa-solid fa-key text-gold"></i>
+          <div class="session-info">
+            <span class="session-title">Auth Session</span>
+            <span class="session-status" id="session-status-text">Checking...</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="main-content">
+      
+      <!-- TOP HEADER BAR -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 id="page-title">Dashboard Overview</h1>
+          <span class="page-subtitle" id="page-subtitle">Real-time control & scraping manager</span>
+        </div>
+
+        <div class="topbar-right">
+          <!-- Connection Badge -->
+          <div class="status-badge badge-connected" id="connection-badge">
+            <span class="dot"></span>
+            <span id="connection-text">Connected</span>
+          </div>
+
+          <!-- Active Task Indicator -->
+          <div class="status-badge badge-idle" id="task-badge">
+            <span class="dot"></span>
+            <span id="task-text">Idle</span>
+          </div>
+
+          <!-- Stop Task Button -->
+          <button class="btn btn-danger btn-sm" id="btn-global-stop" style="display: none;">
+            <i class="fa-solid fa-circle-stop"></i> Stop Task
+          </button>
+        </div>
+      </header>
+
+      <!-- LIVE PROGRESS MONITOR BANNER (Sticky top when active) -->
+      <div class="progress-banner" id="progress-banner" style="display: none;">
+        <div class="progress-header">
+          <div class="progress-title">
+            <i class="fa-solid fa-spinner fa-spin text-cyan"></i>
+            <span id="progress-task-name">Running Task...</span>
+            <span class="badge-item-id" id="progress-item-id"></span>
+          </div>
+          <div class="progress-stats">
+            <span id="progress-counter">0 / 0</span>
+            <span class="progress-percent" id="progress-percent-text">0%</span>
+          </div>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div class="progress-status-text" id="progress-status-text">Initializing...</div>
+      </div>
+
+      <!-- TAB CONTENTS -->
+      <div class="content-body">
+
+        <!-- TAB 1: DASHBOARD -->
+        <section class="tab-pane active" id="tab-dashboard">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon bg-purple"><i class="fa-solid fa-file-code"></i></div>
+              <div class="stat-content">
+                <span class="stat-label">JSON Files</span>
+                <h3 id="stat-json-files">0</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-cyan"><i class="fa-solid fa-list-ol"></i></div>
+              <div class="stat-content">
+                <span class="stat-label">Scraped IDs</span>
+                <h3 id="stat-total-ids">0</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-emerald"><i class="fa-solid fa-box-open"></i></div>
+              <div class="stat-content">
+                <span class="stat-label">Scraped Products</span>
+                <h3 id="stat-total-products">0</h3>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon bg-gold"><i class="fa-solid fa-shield-halved"></i></div>
+              <div class="stat-content">
+                <span class="stat-label">Auth Session</span>
+                <h3 id="stat-auth-state">Valid</h3>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid-2-col">
+            <!-- QUICK ENGINE LAUNCHERS -->
+            <div class="card">
+              <div class="card-header">
+                <h3><i class="fa-solid fa-rocket text-cyan"></i> Quick Launch Modules</h3>
+              </div>
+              <div class="card-body launcher-grid">
+                <div class="launcher-card" data-launch="ids">
+                  <div class="launcher-icon"><i class="fa-solid fa-list-check"></i></div>
+                  <h4>Extract Product IDs</h4>
+                  <p>Crawls category page and stores IDs into JSON.</p>
+                  <button class="btn btn-secondary btn-sm">Configure & Run</button>
+                </div>
+
+                <div class="launcher-card" data-launch="details">
+                  <div class="launcher-icon"><i class="fa-solid fa-boxes-packing"></i></div>
+                  <h4>Extract Product Details</h4>
+                  <p>Fetches price, stock, weight, rating & description.</p>
+                  <button class="btn btn-secondary btn-sm">Configure & Run</button>
+                </div>
+
+                <div class="launcher-card" data-launch="prices">
+                  <div class="launcher-icon"><i class="fa-solid fa-tags"></i></div>
+                  <h4>Update Product Prices</h4>
+                  <p>Cart total calculation & profit margin addition.</p>
+                  <button class="btn btn-secondary btn-sm">Configure & Run</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- RECENT JSON FILES -->
+            <div class="card">
+              <div class="card-header flex-between">
+                <h3><i class="fa-solid fa-folder-open text-purple"></i> Project JSON Files</h3>
+                <button class="btn btn-outline btn-sm" id="btn-refresh-dashboard-files">
+                  <i class="fa-solid fa-rotate-right"></i> Refresh
+                </button>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="data-table" id="dashboard-files-table">
+                    <thead>
+                      <tr>
+                        <th>File Name</th>
+                        <th>Size</th>
+                        <th>Items</th>
+                        <th>Modified</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td colspan="5" class="text-center">Loading files...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: SCRAPE PRODUCT IDs -->
+        <section class="tab-pane" id="tab-scrape-ids">
+          <div class="card max-w-700">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-list-check text-cyan"></i> Extract Product IDs Engine</h3>
+            </div>
+            <div class="card-body">
+              <form id="form-scrape-ids">
+                <div class="form-group">
+                  <label for="ids-link"><i class="fa-solid fa-link text-cyan"></i> Category Page URL Link</label>
+                  <input type="url" id="ids-link" class="form-control" required 
+                         value="https://wukusy.app/dropshiper/category/3?page=2" 
+                         placeholder="Enter Wukusy category URL with page number">
+                  <div class="preset-chips">
+                    <span>Presets:</span>
+                    <button type="button" class="chip" data-url="https://wukusy.app/dropshiper/category/3?page=1">Cat 3 Page 1</button>
+                    <button type="button" class="chip" data-url="https://wukusy.app/dropshiper/category/3?page=2">Cat 3 Page 2</button>
+                    <button type="button" class="chip" data-url="https://wukusy.app/dropshiper/category/3?page=3">Cat 3 Page 3</button>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="ids-output-file"><i class="fa-solid fa-file-export text-emerald"></i> Output File Name</label>
+                    <input type="text" id="ids-output-file" class="form-control" required value="product_2.json" placeholder="e.g. product_2.json">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-eye-slash text-purple"></i> Browser Mode</label>
+                    <div class="toggle-container">
+                      <input type="checkbox" id="ids-headless" class="toggle-input" checked>
+                      <label for="ids-headless" class="toggle-label">
+                        <span class="toggle-ball"></span>
+                      </label>
+                      <span class="toggle-text" id="ids-headless-text">Headless (Background)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary" id="btn-start-ids">
+                    <i class="fa-solid fa-play"></i> Start Extracting Product IDs
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: SCRAPE PRODUCT DETAILS -->
+        <section class="tab-pane" id="tab-scrape-details">
+          <div class="card max-w-700">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-boxes-packing text-emerald"></i> Extract Product Details Engine</h3>
+            </div>
+            <div class="card-body">
+              <form id="form-scrape-details">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="details-input-file"><i class="fa-solid fa-file-import text-cyan"></i> Input Product IDs File</label>
+                    <select id="details-input-file" class="form-control" required>
+                      <option value="product_1.json">product_1.json</option>
+                      <option value="product_2.json">product_2.json</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="details-output-file"><i class="fa-solid fa-file-export text-emerald"></i> Output Details File Name</label>
+                    <input type="text" id="details-output-file" class="form-control" required value="products-data_1.json">
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label><i class="fa-solid fa-eye-slash text-purple"></i> Browser Mode</label>
+                  <div class="toggle-container">
+                    <input type="checkbox" id="details-headless" class="toggle-input" checked>
+                    <label for="details-headless" class="toggle-label">
+                      <span class="toggle-ball"></span>
+                    </label>
+                    <span class="toggle-text" id="details-headless-text">Headless (Background)</span>
+                  </div>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-success" id="btn-start-details">
+                    <i class="fa-solid fa-play"></i> Start Extracting Details
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 4: UPDATE PRODUCT PRICES -->
+        <section class="tab-pane" id="tab-update-price">
+          <div class="card max-w-700">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-tags text-gold"></i> Price Calculation & Updater Engine</h3>
+            </div>
+            <div class="card-body">
+              <form id="form-update-price">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="price-input-file"><i class="fa-solid fa-file-import text-cyan"></i> Input Product Details JSON File</label>
+                    <select id="price-input-file" class="form-control" required>
+                      <option value="products-data_1.json">products-data_1.json</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="price-profit-margin"><i class="fa-solid fa-percent text-gold"></i> Profit Percentage Margin (%)</label>
+                    <input type="number" id="price-profit-margin" class="form-control" min="0" max="500" step="0.5" value="20" required>
+                    <div class="preset-chips">
+                      <span>Quick %:</span>
+                      <button type="button" class="chip-percent" data-val="10">10%</button>
+                      <button type="button" class="chip-percent" data-val="15">15%</button>
+                      <button type="button" class="chip-percent" data-val="20">20%</button>
+                      <button type="button" class="chip-percent" data-val="25">25%</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="price-category-url"><i class="fa-solid fa-link text-cyan"></i> Category Page URL (For Add-to-Cart lookup)</label>
+                  <input type="url" id="price-category-url" class="form-control" required value="https://wukusy.app/dropshiper/category/3">
+                </div>
+
+                <div class="form-group">
+                  <label><i class="fa-solid fa-eye-slash text-purple"></i> Browser Mode</label>
+                  <div class="toggle-container">
+                    <input type="checkbox" id="price-headless" class="toggle-input" checked>
+                    <label for="price-headless" class="toggle-label">
+                      <span class="toggle-ball"></span>
+                    </label>
+                    <span class="toggle-text" id="price-headless-text">Headless (Background)</span>
+                  </div>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-warning" id="btn-start-prices">
+                    <i class="fa-solid fa-play"></i> Start Calculating & Updating Prices
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5: JSON STUDIO -->
+        <section class="tab-pane" id="tab-json-studio">
+          <div class="json-studio-layout">
+            <!-- Sidebar file list -->
+            <div class="json-file-sidebar">
+              <div class="sidebar-header flex-between">
+                <span>📁 Workspace JSON Files</span>
+                <button class="btn btn-icon btn-sm" id="btn-refresh-json-list" title="Refresh files"><i class="fa-solid fa-rotate-right"></i></button>
+              </div>
+              <ul class="file-list" id="json-sidebar-file-list">
+                <!-- Dynamically populated -->
+              </ul>
+            </div>
+
+            <!-- Editor Pane -->
+            <div class="json-editor-pane">
+              <div class="editor-header">
+                <div class="file-title-area">
+                  <i class="fa-solid fa-file-code text-cyan"></i>
+                  <h3 id="json-active-filename">No File Selected</h3>
+                  <span class="badge-item-count" id="json-item-count">0 items</span>
+                </div>
+                
+                <div class="editor-actions">
+                  <div class="view-toggle">
+                    <button class="btn-toggle active" id="view-mode-tree"><i class="fa-solid fa-sitemap"></i> Tree</button>
+                    <button class="btn-toggle" id="view-mode-raw"><i class="fa-solid fa-code"></i> Raw Code</button>
+                  </div>
+                  <button class="btn btn-secondary btn-sm" id="btn-copy-json"><i class="fa-solid fa-copy"></i> Copy</button>
+                  <button class="btn btn-secondary btn-sm" id="btn-download-json"><i class="fa-solid fa-download"></i> Download</button>
+                  <button class="btn btn-primary btn-sm" id="btn-save-json"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+                </div>
+              </div>
+
+              <!-- Search Bar -->
+              <div class="editor-toolbar">
+                <div class="search-box">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input type="text" id="json-search-input" placeholder="Search JSON keys or values...">
+                </div>
+                <div class="json-status" id="json-validity-status">
+                  <i class="fa-solid fa-circle-check text-emerald"></i> Valid JSON
+                </div>
+              </div>
+
+              <!-- View Containers -->
+              <div class="json-view-container">
+                <!-- Interactive Tree View -->
+                <div class="tree-view" id="json-tree-view">
+                  <div class="placeholder-text">Select a JSON file from the left sidebar to view its content</div>
+                </div>
+
+                <!-- Code Editor View -->
+                <div class="raw-code-view" id="json-raw-view" style="display: none;">
+                  <textarea id="json-textarea" spellcheck="false" placeholder="JSON contents will appear here..."></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 6: LIVE CONSOLE LOGS -->
+        <section class="tab-pane" id="tab-terminal">
+          <div class="terminal-card">
+            <div class="terminal-header">
+              <div class="terminal-controls">
+                <span class="control-dot red"></span>
+                <span class="control-dot yellow"></span>
+                <span class="control-dot green"></span>
+                <span class="terminal-title"><i class="fa-solid fa-terminal"></i> Live Process Console</span>
+              </div>
+
+              <div class="terminal-actions">
+                <div class="log-filter-group">
+                  <button class="btn-filter active" data-filter="all">All</button>
+                  <button class="btn-filter" data-filter="info">Info</button>
+                  <button class="btn-filter" data-filter="success">Success</button>
+                  <button class="btn-filter" data-filter="warn">Warnings</button>
+                  <button class="btn-filter" data-filter="error">Errors</button>
+                </div>
+
+                <label class="auto-scroll-label">
+                  <input type="checkbox" id="chk-auto-scroll" checked> Auto-Scroll
+                </label>
+
+                <button class="btn btn-secondary btn-sm" id="btn-clear-logs">
+                  <i class="fa-solid fa-trash-can"></i> Clear
+                </button>
+                <button class="btn btn-secondary btn-sm" id="btn-copy-logs">
+                  <i class="fa-solid fa-copy"></i> Copy
+                </button>
+              </div>
+            </div>
+
+            <div class="terminal-body" id="terminal-output">
+              <div class="log-line info">
+                <span class="timestamp">[System]</span>
+                <span class="log-msg">🚀 Console initialized. Waiting for task logs...</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- TOAST NOTIFICATIONS CONTAINER -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

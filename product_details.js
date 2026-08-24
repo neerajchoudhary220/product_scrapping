@@ -1,326 +1,208 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
+const path = require("path");
 
-const AUTH_FILE = "./auth.json";
-
-// ================================
-// CONFIG
-// ================================
-
-const PRODUCT_FILE = "./product_1.json";
-const OUTPUT_FILE = "./products-data_1.json";
-
+const DATA_DIR = path.join(__dirname, "data");
+const DEFAULT_AUTH = path.join(__dirname, "auth.json");
 const BASE_URL = "https://wukusy.app";
 
-// ================================
-// HELPER FUNCTION
-// Safe text extraction
-// ================================
+function resolveDataPath(filename, defaultName) {
+  const target = filename || defaultName;
+  if (path.isAbsolute(target)) return target;
+  if (target.startsWith("data/") || target.startsWith("data\\")) {
+    return path.join(__dirname, target);
+  }
+  return path.join(DATA_DIR, target);
+}
 
 async function getText(locator) {
   try {
     const count = await locator.count();
-
-    if (count === 0) {
-      return null;
-    }
-
+    if (count === 0) return null;
     return (await locator.first().innerText()).trim();
   } catch (error) {
     return null;
   }
 }
 
-// ================================
-// GET SPECIFICATION VALUE
-//
-// Example:
-//
-// <div class="spec-card">
-//   <p class="spec-label">Inventory</p>
-//   <p class="spec-value">114 units</p>
-// </div>
-//
-// getSpecValue(page, "Inventory")
-// returns "114 units"
-// ================================
-
 async function getSpecValue(page, labelName) {
   try {
     const specCards = page.locator(".spec-card");
-
     const count = await specCards.count();
-
     for (let i = 0; i < count; i++) {
       const card = specCards.nth(i);
-
       const label = await getText(card.locator(".spec-label"));
-
       if (label && label.toLowerCase() === labelName.toLowerCase()) {
         return await getText(card.locator(".spec-value"));
       }
     }
-
     return null;
   } catch (error) {
     return null;
   }
 }
 
-// ================================
-// MAIN FUNCTION
-// ================================
+/**
+ * Scrape Product Details for each product ID in input JSON
+ */
+async function scrapeProductDetails(options = {}, onLog = console.log, onProgress = () => {}, shouldStop = () => false) {
+  const {
+    inputFile = "product_1.json",
+    outputFile = "products-data_1.json",
+    headless = true,
+    authFile = DEFAULT_AUTH
+  } = options;
 
-(async () => {
-  // --------------------------------
-  // Check product file
-  // --------------------------------
+  const targetInputFile = resolveDataPath(inputFile, "product_1.json");
+  const targetOutputFile = resolveDataPath(outputFile, "products-data_1.json");
+  const targetAuthFile = path.isAbsolute(authFile) ? authFile : path.join(__dirname, authFile);
 
-  if (!fs.existsSync(PRODUCT_FILE)) {
-    console.error(`File not found: ${PRODUCT_FILE}`);
-    process.exit(1);
+  const log = (msg, type = 'info') => {
+    if (typeof onLog === 'function') onLog(msg, type);
+  };
+
+  log(`🚀 Starting Product Details Scraping...`);
+  log(`📂 Input IDs File: ${targetInputFile}`);
+  log(`💾 Output Data File: ${targetOutputFile}`);
+  log(`🕶️ Headless: ${headless ? 'Yes' : 'No'}`);
+
+  if (!fs.existsSync(targetInputFile)) {
+    throw new Error(`Input file not found: ${targetInputFile}`);
   }
 
-  // --------------------------------
-  // Check auth file
-  // --------------------------------
-
-  if (!fs.existsSync(AUTH_FILE)) {
-    console.error(`Auth file not found: ${AUTH_FILE}`);
-    process.exit(1);
+  if (!fs.existsSync(targetAuthFile)) {
+    log(`⚠️ Warning: Auth file '${targetAuthFile}' not found. Session may require login.`, 'warn');
   }
 
-  // --------------------------------
-  // Read Product IDs
-  // --------------------------------
-
-  const productIds = JSON.parse(fs.readFileSync(PRODUCT_FILE, "utf8"));
-
-  console.log(`Total products found: ${productIds.length}`);
-
-  // --------------------------------
-  // Load already scraped products
-  // --------------------------------
+  const productIds = JSON.parse(fs.readFileSync(targetInputFile, "utf8"));
+  log(`📦 Total Product IDs in input file: ${productIds.length}`);
 
   let products = [];
-
-  if (fs.existsSync(OUTPUT_FILE)) {
+  if (fs.existsSync(targetOutputFile)) {
     try {
-      products = JSON.parse(fs.readFileSync(OUTPUT_FILE, "utf8"));
-
-      console.log(`Already scraped products: ${products.length}`);
+      products = JSON.parse(fs.readFileSync(targetOutputFile, "utf8"));
+      log(`🔄 Already scraped products loaded: ${products.length}`);
     } catch (error) {
-      console.log("Output JSON is invalid. Starting with empty data.");
-
+      log("⚠️ Output JSON is invalid. Starting fresh with empty data.", 'warn');
       products = [];
     }
   }
 
-  // --------------------------------
-  // Launch Browser
-  // --------------------------------
-
-  const browser = await chromium.launch({
-    headless: true,
-  });
-
-  const context = await browser.newContext({
-    storageState: AUTH_FILE,
-  });
-
-  const page = await context.newPage();
-
-  // --------------------------------
-  // LOOP ALL PRODUCTS
-  // --------------------------------
-
-  for (const productId of productIds) {
-    // --------------------------------
-    // Skip already scraped product
-    // --------------------------------
-
-    const alreadyScraped = products.some(
-      (product) => String(product.id) === String(productId),
-    );
-
-    if (alreadyScraped) {
-      console.log(`Skipping ${productId} - Already scraped`);
-
-      continue;
-    }
-
-    // --------------------------------
-    // Dynamic Product URL
-    // --------------------------------
-
-    const productUrl = `${BASE_URL}/merchant/product-details/${productId}`;
-
-    console.log("\n================================");
-    console.log(`Scraping Product ID: ${productId}`);
-    console.log(`URL: ${productUrl}`);
-    console.log("================================\n");
-
+    let browser;
     try {
-      // --------------------------------
-      // Open Product Page
-      // --------------------------------
-
-      await page.goto(productUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-
-      // --------------------------------
-      // Wait for product page
-      // --------------------------------
-
-      await page.waitForSelector(".thumbnails-vertical .thumbnail-item", {
-        timeout: 30000,
-      });
-
-      // =================================
-      // SCRAPE PRICE
-      // =================================
-
-      const price = await getText(page.locator(".price-amount-blue"));
-
-      console.log(`Price: ${price}`);
-
-      // =================================
-      // SCRAPE INVENTORY / STOCK
-      // =================================
-
-      const stock = await getSpecValue(page, "Inventory");
-
-      console.log(`Stock: ${stock}`);
-
-      // =================================
-      // SCRAPE WEIGHT
-      // =================================
-
-      const weight = await getSpecValue(page, "Weight");
-
-      console.log(`Weight: ${weight}`);
-
-      // =================================
-      // SCRAPE SUPPLIER RATING
-      // =================================
-
-      const supplierRating = await getSpecValue(page, "Supplier Rating");
-
-      console.log(`Supplier Rating: ${supplierRating}`);
-
-      // =================================
-      // EXTRACT ORIGINAL IMAGE URLs
-      // =================================
-
-      const images = await page
-        .locator(".thumbnails-vertical .thumbnail-item")
-        .evaluateAll((items) => {
-          return items
-            .map((item) => {
-              const onclick = item.getAttribute("onclick");
-
-              if (!onclick) {
-                return null;
-              }
-
-              const match = onclick.match(/changeMainImage\('([^']+)'/);
-
-              return match ? match[1] : null;
-            })
-            .filter(Boolean);
-        });
-
-      console.log(`Images found: ${images.length}`);
-
-      // =================================
-      // CLICK PRODUCT DESCRIPTION TAB
-      // =================================
-
-      const descriptionTab = page.locator("#description-tab");
-
-      await descriptionTab.click();
-
-      // --------------------------------
-      // Wait for description tab
-      // --------------------------------
-
-      await page.waitForSelector("#description.show", {
-        timeout: 10000,
-      });
-
-      // =================================
-      // EXTRACT PRODUCT DESCRIPTION
-      // =================================
-
-      let description = null;
-
-      const descriptionLocator = page.locator("#description .mb-4");
-
-      if (await descriptionLocator.count()) {
-        description = await descriptionLocator.first().innerText();
-
-        description = description.replace(/\n\s*\n\s*\n/g, "\n\n").trim();
+      browser = await chromium.launch({ headless });
+      const contextOptions = {};
+      if (fs.existsSync(targetAuthFile)) {
+        contextOptions.storageState = targetAuthFile;
       }
 
-      console.log(`Description: ${description ? "Extracted" : "Not found"}`);
+      const context = await browser.newContext(contextOptions);
+      const page = await context.newPage();
 
-      // =================================
-      // CREATE PRODUCT DATA
-      // =================================
+      const total = productIds.length;
+      let completedCount = 0;
 
-      const productData = {
-        deo_dap_product_id: String(productId),
+      for (let index = 0; index < total; index++) {
+        if (shouldStop()) {
+          log(`🛑 Task stopped by user at item ${index + 1}/${total}`, 'warn');
+          break;
+        }
 
-        price: price,
+        const productId = String(productIds[index]);
+        const currentItem = index + 1;
 
-        stock: stock,
+        const alreadyScraped = products.some((p) => String(p.deo_dap_product_id || p.id) === productId);
+        if (alreadyScraped) {
+          log(`⏩ Skipping ID ${productId} (${currentItem}/${total}) - Already scraped`);
+          completedCount++;
+          onProgress(completedCount, total, `Skipped ${productId} (Already scraped)`, productId);
+          continue;
+        }
 
-        weight: weight,
+        const productUrl = `${BASE_URL}/merchant/product-details/${productId}`;
+        log(`🔎 [${currentItem}/${total}] Scraping Product ID: ${productId} (${productUrl})`);
+        onProgress(completedCount, total, `Scraping ID ${productId}...`, productId);
 
-        supplier_rating: supplierRating,
+        try {
+          await page.goto(productUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+          await page.waitForSelector(".thumbnails-vertical .thumbnail-item", { timeout: 30000 });
 
-        images: images,
+          const price = await getText(page.locator(".price-amount-blue"));
+          const stock = await getSpecValue(page, "Inventory");
+          const weight = await getSpecValue(page, "Weight");
+          const supplierRating = await getSpecValue(page, "Supplier Rating");
 
-        description: description,
-      };
+          const images = await page.locator(".thumbnails-vertical .thumbnail-item").evaluateAll((items) => {
+            return items
+              .map((item) => {
+                const onclick = item.getAttribute("onclick");
+                if (!onclick) return null;
+                const match = onclick.match(/changeMainImage\('([^']+)'/);
+                return match ? match[1] : null;
+              })
+              .filter(Boolean);
+          });
 
-      // =================================
-      // ADD PRODUCT TO ARRAY
-      // =================================
+          const descriptionTab = page.locator("#description-tab");
+          await descriptionTab.click();
+          await page.waitForSelector("#description.show", { timeout: 10000 }).catch(() => {});
 
-      products.push(productData);
+          let description = null;
+          const descriptionLocator = page.locator("#description .mb-4");
+          if (await descriptionLocator.count()) {
+            description = await descriptionLocator.first().innerText();
+            description = description.replace(/\n\s*\n\s*\n/g, "\n\n").trim();
+          }
 
-      // =================================
-      // SAVE IMMEDIATELY
-      // =================================
+          const productData = {
+            deo_dap_product_id: productId,
+            price: price,
+            stock: stock,
+            weight: weight,
+            supplier_rating: supplierRating,
+            images: images,
+            description: description,
+            scraped_at: new Date().toISOString()
+          };
 
-      fs.writeFileSync(OUTPUT_FILE, JSON.stringify(products, null, 2), "utf8");
+          products.push(productData);
+          
+          // Ensure directory exists
+          const outputDir = path.dirname(targetOutputFile);
+          if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+          }
 
-      console.log(`✓ Product ${productId} saved successfully`);
-    } catch (error) {
-      console.error(`✗ Error scraping product ${productId}`);
+          fs.writeFileSync(targetOutputFile, JSON.stringify(products, null, 2), "utf8");
 
-      console.error(error.message);
-    }
+          log(`✅ [${currentItem}/${total}] Product ${productId} saved! Price: ${price || 'N/A'}, Stock: ${stock || 'N/A'}, Images: ${images.length}`, 'success');
+        } catch (error) {
+          log(`❌ [${currentItem}/${total}] Error scraping Product ID ${productId}: ${error.message}`, 'error');
+        }
 
-    // --------------------------------
-    // Small delay
-    // --------------------------------
+        completedCount++;
+        onProgress(completedCount, total, `Processed ID ${productId}`, productId);
+        await page.waitForTimeout(1000);
+      }
 
-    await page.waitForTimeout(1000);
+      await browser.close();
+      log(`🎉 Finished Product Details Scraping. Total items in ${targetOutputFile}: ${products.length}`, 'success');
+      return { success: true, count: products.length, file: targetOutputFile };
+
+  } catch (error) {
+    if (browser) await browser.close().catch(() => {});
+    log(`❌ Scraping aborted: ${error.message}`, 'error');
+    throw error;
   }
+}
 
-  // --------------------------------
-  // FINISHED
-  // --------------------------------
+if (require.main === module) {
+  const inputFile = process.argv[2] || "./product_1.json";
+  const outputFile = process.argv[3] || "./products-data_1.json";
+  scrapeProductDetails({ inputFile, outputFile, headless: true })
+    .then(res => console.log("CLI Product Details Scraping Finished:", res))
+    .catch(err => console.error("CLI Product Details Scraping Failed:", err.message));
+}
 
-  console.log("\n================================");
-  console.log("SCRAPING COMPLETED");
-  console.log(`Total saved products: ${products.length}`);
-  console.log(`Output file: ${OUTPUT_FILE}`);
-  console.log("================================");
+module.exports = { scrapeProductDetails };
 
-  await browser.close();
-})();

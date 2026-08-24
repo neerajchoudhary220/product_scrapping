@@ -1,522 +1,286 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
+const path = require("path");
 
-const AUTH_FILE = "./auth.json";
-
-// ========================================
-// CONFIG
-// ========================================
-
-const PRODUCT_FILE = "./products-data_1.json";
-
+const DATA_DIR = path.join(__dirname, "data");
+const DEFAULT_AUTH = path.join(__dirname, "auth.json");
 const BASE_URL = "https://wukusy.app";
+const DEFAULT_CART_URL = `${BASE_URL}/dropshiper/cart`;
+const DEFAULT_CATEGORY_URL = `${BASE_URL}/dropshiper/category/3`;
 
-const CATEGORY_URL = `${BASE_URL}/dropshiper/category/3`;
-
-const CART_URL = `${BASE_URL}/dropshiper/cart`;
-
-const PROFIT_PERCENTAGE = 20;
-
-// ========================================
-// SAVE PRODUCTS
-// ========================================
-
-function saveProducts(products) {
-  fs.writeFileSync(PRODUCT_FILE, JSON.stringify(products, null, 2), "utf8");
+function resolveDataPath(filename, defaultName = "products-data_1.json") {
+  const target = filename || defaultName;
+  if (path.isAbsolute(target)) return target;
+  if (target.startsWith("data/") || target.startsWith("data\\")) {
+    return path.join(__dirname, target);
+  }
+  return path.join(DATA_DIR, target);
 }
 
-// ========================================
-// PARSE PRICE
-// ========================================
+function saveProducts(filePath, products) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(products, null, 2), "utf8");
+}
 
 function parsePrice(price) {
-  if (!price) {
-    return null;
-  }
-
-  const cleaned = String(price)
-    .replace(/[₹,\s]/g, "")
-    .trim();
-
+  if (!price) return null;
+  const cleaned = String(price).replace(/[₹,\s]/g, "").trim();
   const number = parseFloat(cleaned);
-
   return Number.isNaN(number) ? null : number;
 }
 
-// ========================================
-// GET CART TOTAL
-//
-// Specifically targets:
-//
-// <tr class="table-active">
-//     <th>Total (INR) :</th>
-//     ...
-//     <span id="totalUpdate">199.10</span>
-// </tr>
-// ========================================
-
 async function getCartTotal(page) {
   const totalElement = page
-    .locator(
-      '//tr[th[normalize-space(.)="Total (INR) :"]]//span[@id="totalUpdate"]',
-    )
+    .locator('//tr[th[normalize-space(.)="Total (INR) :"]]//span[@id="totalUpdate"]')
     .first();
 
-  await totalElement.waitFor({
-    state: "visible",
-    timeout: 30000,
-  });
-
+  await totalElement.waitFor({ state: "visible", timeout: 30000 });
   const totalText = await totalElement.innerText();
-
-  console.log(`Raw Cart Total: ${totalText}`);
-
   return parsePrice(totalText);
 }
 
-// ========================================
-// REMOVE FIRST CART ITEM
-//
-// This directly finds:
-//
-// a[onclick*="removeCartId"]
-//
-// and clicks it.
-// ========================================
-
-async function removeFirstCartItem(page) {
-  const removeButton = page.locator('a[onclick*="removeCartId"]').first();
-
-  const count = await page.locator('a[onclick*="removeCartId"]').count();
-
-  if (count === 0) {
-    return false;
-  }
-
-  console.log("Clicking Remove button...");
-
-  await removeButton.scrollIntoViewIfNeeded();
-
-  await removeButton.click({
-    timeout: 15000,
-  });
-
-  return true;
-}
-
-// ========================================
-// CLEAR CART
-//
-// Keeps removing items until cart is empty.
-// ========================================
-
-async function clearCart(page) {
-  await page.goto(CART_URL, {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
-
+async function clearCart(page, log = () => {}) {
+  await page.goto(DEFAULT_CART_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(1000);
 
   while (true) {
     const removeButtons = page.locator('a[onclick*="removeCartId"]');
-
     const count = await removeButtons.count();
 
     if (count === 0) {
-      console.log("Cart is empty.");
+      log("🛒 Cart is verified empty.");
       break;
     }
 
-    console.log(`Cart has ${count} item(s). Removing one...`);
-
-    // Store count before clicking
+    log(`🛒 Cart has ${count} residual item(s). Clearing item...`);
     const previousCount = count;
 
     await removeButtons.first().scrollIntoViewIfNeeded();
-
     await removeButtons.first().click();
 
-    // Wait until number of remove buttons decreases
     try {
       await page.waitForFunction(
-        (oldCount) => {
-          return (
-            document.querySelectorAll('a[onclick*="removeCartId"]').length <
-            oldCount
-          );
-        },
+        (oldCount) => document.querySelectorAll('a[onclick*="removeCartId"]').length < oldCount,
         previousCount,
-        {
-          timeout: 15000,
-        },
+        { timeout: 15000 }
       );
     } catch (error) {
-      console.log("Cart did not update automatically. Reloading...");
+      log("Reloading cart after removal action...", 'warn');
     }
 
     await page.waitForTimeout(1000);
-
-    await page.reload({
-      waitUntil: "domcontentloaded",
-      timeout: 60000,
-    });
-
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForTimeout(1000);
   }
 }
 
-// ========================================
-// REMOVE CURRENT PRODUCT
-//
-// Since we clear the cart before every
-// product, normally only ONE item should
-// exist in the cart.
-//
-// This makes removal much more reliable.
-// ========================================
-
-async function removeCurrentProduct(page, productId) {
-  console.log(`Removing product ${productId} from cart...`);
-
+async function removeCurrentProduct(page, productId, log = () => {}) {
+  log(`🗑️ Removing product ${productId} from cart...`);
   const removeButtons = page.locator('a[onclick*="removeCartId"]');
-
   const countBefore = await removeButtons.count();
 
   if (countBefore === 0) {
-    console.log("No Remove button found in cart.");
-
+    log("⚠️ No remove button found in cart after total calculation.", 'warn');
     return false;
   }
 
-  console.log(`Found ${countBefore} remove button(s).`);
-
   await removeButtons.first().scrollIntoViewIfNeeded();
-
   await removeButtons.first().click();
-
-  // Wait for cart item count to decrease
 
   try {
     await page.waitForFunction(
-      (oldCount) => {
-        return (
-          document.querySelectorAll('a[onclick*="removeCartId"]').length <
-          oldCount
-        );
-      },
+      (oldCount) => document.querySelectorAll('a[onclick*="removeCartId"]').length < oldCount,
       countBefore,
-      {
-        timeout: 15000,
-      },
+      { timeout: 15000 }
     );
-
-    console.log(`✓ Product ${productId} removed.`);
-
+    log(`✓ Product ${productId} removed from cart.`);
     return true;
   } catch (error) {
-    console.log("Remove action did not update page automatically.");
+    log("Cart remove transition timeout, reloading to verify...", 'warn');
   }
 
-  // Reload and verify
-
-  await page.reload({
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
-
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForTimeout(1000);
 
   const countAfter = await page.locator('a[onclick*="removeCartId"]').count();
-
-  if (countAfter < countBefore) {
-    console.log(`✓ Product ${productId} removed after reload.`);
-
-    return true;
-  }
-
-  return false;
+  return countAfter < countBefore;
 }
 
-// ========================================
-// MAIN
-// ========================================
+/**
+ * Update Product Prices by adding items to cart, reading total, and computing profit
+ */
+async function updateProductPrices(options = {}, onLog = console.log, onProgress = () => {}, shouldStop = () => false) {
+  const {
+    inputFile = "products-data_1.json",
+    profitPercentage = 20,
+    categoryUrl = DEFAULT_CATEGORY_URL,
+    headless = true,
+    authFile = DEFAULT_AUTH
+  } = options;
 
-(async () => {
-  // --------------------------------------
-  // CHECK PRODUCT FILE
-  // --------------------------------------
+  const targetInputFile = resolveDataPath(inputFile, "products-data_1.json");
+  const targetAuthFile = path.isAbsolute(authFile) ? authFile : path.join(__dirname, authFile);
 
-  if (!fs.existsSync(PRODUCT_FILE)) {
-    console.error(`Product JSON not found: ${PRODUCT_FILE}`);
+  const log = (msg, type = 'info') => {
+    if (typeof onLog === 'function') onLog(msg, type);
+  };
 
-    process.exit(1);
+  log(`🚀 Starting Price Calculation & Update Process...`);
+  log(`📂 Input Data File: ${targetInputFile}`);
+  log(`📈 Profit Margin: ${profitPercentage}%`);
+  log(`🔗 Category Base URL: ${categoryUrl}`);
+  log(`🕶️ Headless: ${headless ? 'Yes' : 'No'}`);
+
+  if (!fs.existsSync(targetInputFile)) {
+    throw new Error(`Product JSON not found: ${targetInputFile}`);
   }
 
-  // --------------------------------------
-  // CHECK AUTH FILE
-  // --------------------------------------
-
-  if (!fs.existsSync(AUTH_FILE)) {
-    console.error(`Auth file not found: ${AUTH_FILE}`);
-
-    process.exit(1);
+  if (!fs.existsSync(targetAuthFile)) {
+    log(`⚠️ Warning: Auth file '${targetAuthFile}' not found. Session may require login.`, 'warn');
   }
-
-  // --------------------------------------
-  // LOAD PRODUCTS
-  // --------------------------------------
 
   let products;
-
   try {
-    products = JSON.parse(fs.readFileSync(PRODUCT_FILE, "utf8"));
+    products = JSON.parse(fs.readFileSync(targetInputFile, "utf8"));
   } catch (error) {
-    console.error("Unable to read product JSON:");
-
-    console.error(error.message);
-
-    process.exit(1);
+    throw new Error(`Unable to read or parse ${targetInputFile}: ${error.message}`);
   }
 
-  console.log(`Total products: ${products.length}`);
+  const total = products.length;
+  log(`📦 Total products loaded: ${total}`);
 
-  // --------------------------------------
-  // LAUNCH BROWSER
-  // --------------------------------------
+  let browser;
+  try {
+    browser = await chromium.launch({ headless });
+    const contextOptions = {};
+    if (fs.existsSync(authFile)) {
+      contextOptions.storageState = authFile;
+    }
 
-  const browser = await chromium.launch({
-    headless: true,
-  });
+    const context = await browser.newContext(contextOptions);
+    const page = await context.newPage();
 
-  const context = await browser.newContext({
-    storageState: AUTH_FILE,
-  });
+    let completedCount = 0;
 
-  const page = await context.newPage();
-
-  // ======================================
-  // LOOP PRODUCTS
-  // ======================================
-
-  for (let index = 0; index < products.length; index++) {
-    const product = products[index];
-
-    const productId = String(product.deo_dap_product_id);
-
-    console.log("\n");
-    console.log("====================================");
-
-    console.log(`Processing ${index + 1}/${products.length}`);
-
-    console.log(`Product ID: ${productId}`);
-
-    console.log("====================================");
-
-    try {
-      // ==================================
-      // STEP 1
-      // CLEAR CART FIRST
-      // ==================================
-
-      console.log("Checking and clearing cart...");
-
-      await clearCart(page);
-
-      // ==================================
-      // STEP 2
-      // OPEN CATEGORY PAGE
-      // ==================================
-
-      console.log("Opening category page...");
-
-      await page.goto(CATEGORY_URL, {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-
-      await page.waitForSelector(".product-card", {
-        timeout: 30000,
-      });
-
-      // ==================================
-      // STEP 3
-      // FIND PRODUCT USING ID
-      // ==================================
-
-      const productLink = page.locator(
-        `.product-card a[href="/merchant/product-details/${productId}"]`,
-      );
-
-      const productCount = await productLink.count();
-
-      if (productCount === 0) {
-        console.log(`⚠ Product ${productId} not found on category page.`);
-
-        continue;
+    for (let index = 0; index < total; index++) {
+      if (shouldStop()) {
+        log(`🛑 Task stopped by user at item ${index + 1}/${total}`, 'warn');
+        break;
       }
 
-      // ==================================
-      // FIND PRODUCT CARD
-      // ==================================
+      const product = products[index];
+      const productId = String(product.deo_dap_product_id || product.id);
+      const currentItem = index + 1;
 
-      const productCard = productLink
-        .first()
-        .locator("xpath=ancestor::div[contains(@class,'product-card')][1]");
-
-      // ==================================
-      // FIND ADD TO CART
-      // ==================================
-
-      const addToCartButton = productCard.locator("button.btn-cart");
-
-      const addButtonCount = await addToCartButton.count();
-
-      if (addButtonCount === 0) {
-        console.log(`⚠ Add To Cart button not found for ${productId}`);
-
-        continue;
-      }
-
-      // ==================================
-      // STEP 4
-      // ADD TO CART
-      // ==================================
-
-      console.log(`Adding ${productId} to cart...`);
-
-      await addToCartButton.first().scrollIntoViewIfNeeded();
-
-      await addToCartButton.first().click();
-
-      await page.waitForTimeout(2000);
-
-      // ==================================
-      // STEP 5
-      // OPEN CART
-      // ==================================
-
-      console.log("Opening cart...");
-
-      await page.goto(CART_URL, {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-
-      await page.waitForTimeout(1000);
-
-      // ==================================
-      // STEP 6
-      // GET ACTUAL TOTAL
-      //
-      // FIXED:
-      // specifically targets
-      // Total (INR) row
-      // ==================================
-
-      const totalPrice = await getCartTotal(page);
-
-      if (totalPrice === null) {
-        throw new Error(`Unable to parse cart total for ${productId}`);
-      }
-
-      console.log(`Cart Price: ₹${totalPrice}`);
-
-      // ==================================
-      // STEP 7
-      // CALCULATE PROFIT
-      // ==================================
-
-      const profitAmount = Number(
-        ((totalPrice * PROFIT_PERCENTAGE) / 100).toFixed(2),
-      );
-
-      // ==================================
-      // FINAL PRICE
-      // ==================================
-
-      const finalPrice = Number((totalPrice + profitAmount).toFixed(2));
-
-      console.log(`Profit (${PROFIT_PERCENTAGE}%): ₹${profitAmount}`);
-
-      console.log(`Final Price: ₹${finalPrice}`);
-
-      // ==================================
-      // STEP 8
-      // UPDATE JSON
-      // ==================================
-
-      products[index] = {
-        ...product,
-
-        price: totalPrice,
-
-        profit_amount: profitAmount,
-
-        final_price: finalPrice,
-      };
-
-      // ==================================
-      // SAVE IMMEDIATELY
-      // ==================================
-
-      saveProducts(products);
-
-      console.log(`✓ Product ${productId} updated in JSON.`);
-
-      // ==================================
-      // STEP 9
-      // REMOVE PRODUCT
-      // ==================================
-
-      const removed = await removeCurrentProduct(page, productId);
-
-      if (!removed) {
-        throw new Error(
-          `FAILED TO REMOVE PRODUCT ${productId}. Next product will not be processed on top of it.`,
-        );
-      }
-
-      console.log(`✓ Product ${productId} completed.`);
-    } catch (error) {
-      console.error(`✗ Error processing ${productId}`);
-
-      console.error(error.message);
-
-      // Emergency cleanup
+      log(`----------------------------------------`);
+      log(`🔄 [${currentItem}/${total}] Processing Product ID: ${productId}`);
+      onProgress(completedCount, total, `Processing ID ${productId}...`, productId);
 
       try {
-        console.log("Attempting emergency cart cleanup...");
+        log(`Step 1: Clearing cart before processing ${productId}...`);
+        await clearCart(page, log);
 
-        if (!page.isClosed()) {
-          await clearCart(page);
+        if (shouldStop()) break;
+
+        log(`Step 2: Navigating to category page (${categoryUrl})...`);
+        await page.goto(categoryUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+        await page.waitForSelector(".product-card", { timeout: 30000 });
+
+        log(`Step 3: Locating product card for ID ${productId}...`);
+        const productLink = page.locator(`.product-card a[href="/merchant/product-details/${productId}"]`);
+        const productCount = await productLink.count();
+
+        if (productCount === 0) {
+          log(`⚠️ Product ${productId} not found on category page. Skipping...`, 'warn');
+          completedCount++;
+          onProgress(completedCount, total, `Skipped ID ${productId} (Not found on page)`, productId);
+          continue;
         }
-      } catch (cleanupError) {
-        console.error("Cart cleanup failed:", cleanupError.message);
+
+        const productCard = productLink.first().locator("xpath=ancestor::div[contains(@class,'product-card')][1]");
+        const addToCartButton = productCard.locator("button.btn-cart");
+
+        if (await addToCartButton.count() === 0) {
+          log(`⚠️ Add To Cart button missing for ${productId}. Skipping...`, 'warn');
+          completedCount++;
+          onProgress(completedCount, total, `Skipped ID ${productId} (No button)`, productId);
+          continue;
+        }
+
+        log(`Step 4: Adding product ${productId} to cart...`);
+        await addToCartButton.first().scrollIntoViewIfNeeded();
+        await addToCartButton.first().click();
+        await page.waitForTimeout(2000);
+
+        log(`Step 5: Navigating to cart to calculate total...`);
+        await page.goto(DEFAULT_CART_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+        await page.waitForTimeout(1000);
+
+        log(`Step 6: Parsing cart price...`);
+        const totalPrice = await getCartTotal(page);
+
+        if (totalPrice === null) {
+          throw new Error(`Unable to parse cart total for product ${productId}`);
+        }
+
+        const profitAmount = Number(((totalPrice * Number(profitPercentage)) / 100).toFixed(2));
+        const finalPrice = Number((totalPrice + profitAmount).toFixed(2));
+
+        log(`💰 Product ${productId} Pricing -> Base: ₹${totalPrice} | Profit (${profitPercentage}%): ₹${profitAmount} | Final: ₹${finalPrice}`);
+
+        products[index] = {
+          ...product,
+          price: totalPrice,
+          profit_percentage: Number(profitPercentage),
+          profit_amount: profitAmount,
+          final_price: finalPrice,
+          updated_at: new Date().toISOString()
+        };
+
+        saveProducts(targetInputFile, products);
+        log(`✅ Saved updated pricing to ${targetInputFile}`, 'success');
+
+        log(`Step 7: Cleaning cart item ${productId}...`);
+        const removed = await removeCurrentProduct(page, productId, log);
+        if (!removed) {
+          log(`⚠️ Warning: Cart item removal verification unconfirmed for ${productId}`, 'warn');
+        }
+
+        log(`✨ [${currentItem}/${total}] Successfully updated Product ID ${productId}`, 'success');
+
+      } catch (error) {
+        log(`❌ Error processing Product ${productId}: ${error.message}`, 'error');
+        try {
+          if (!page.isClosed()) await clearCart(page, log);
+        } catch (cleanupErr) {
+          log(`Emergency cleanup error: ${cleanupErr.message}`, 'error');
+        }
       }
+
+      completedCount++;
+      onProgress(completedCount, total, `Completed ID ${productId}`, productId);
+      if (!page.isClosed()) await page.waitForTimeout(1000);
     }
 
-    // ==================================
-    // DELAY
-    // ==================================
+    await browser.close();
+    log(`🎉 Finished Price Calculation & Updates. File ${targetInputFile} fully updated!`, 'success');
+    return { success: true, count: products.length, file: targetInputFile };
 
-    if (!page.isClosed()) {
-      await page.waitForTimeout(1000);
-    }
+  } catch (error) {
+    if (browser) await browser.close().catch(() => {});
+    log(`❌ Price update task failed: ${error.message}`, 'error');
+    throw error;
   }
+}
 
-  // ======================================
-  // FINISHED
-  // ======================================
+if (require.main === module) {
+  const inputFile = process.argv[2] || "./products-data_1.json";
+  const profitPercentage = process.argv[3] || 20;
+  updateProductPrices({ inputFile, profitPercentage, headless: true })
+    .then(res => console.log("CLI Price Update Finished:", res))
+    .catch(err => console.error("CLI Price Update Failed:", err.message));
+}
 
-  console.log("\n");
-  console.log("====================================");
+module.exports = { updateProductPrices };
 
-  console.log("ALL PRODUCTS COMPLETED");
-
-  console.log(`Updated JSON: ${PRODUCT_FILE}`);
-
-  console.log("====================================");
-
-  await browser.close();
-})();
