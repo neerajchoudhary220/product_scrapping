@@ -239,6 +239,8 @@ document.addEventListener("DOMContentLoaded", () => {
     tbody.innerHTML = files.map((f) => {
       const sizeKB = (f.size / 1024).toFixed(1) + " KB";
       const mtime = new Date(f.mtime).toLocaleString();
+      const isProtected = f.name === "auth.json";
+
       return `
         <tr>
           <td><strong style="color: var(--color-cyan)"><i class="fa-solid fa-file-code"></i> ${f.name}</strong></td>
@@ -246,9 +248,17 @@ document.addEventListener("DOMContentLoaded", () => {
           <td><span class="badge-item-count">${f.itemCount} items</span></td>
           <td style="font-size: 11px; color: var(--text-dim);">${mtime}</td>
           <td>
-            <button class="btn btn-secondary btn-sm btn-open-json" data-filename="${f.name}">
-              <i class="fa-solid fa-eye"></i> View
-            </button>
+            <div class="action-btn-group">
+              <button class="btn btn-secondary btn-sm btn-open-json" data-filename="${f.name}">
+                <i class="fa-solid fa-eye"></i> View
+              </button>
+              ${isProtected 
+                ? `<span class="badge-item-count text-gold" style="font-size: 11px;"><i class="fa-solid fa-lock"></i> Read Only</span>`
+                : `<button class="btn btn-danger btn-sm btn-delete-file-table" data-filename="${f.name}" title="Delete file">
+                    <i class="fa-solid fa-trash-can"></i>
+                   </button>`
+              }
+            </div>
           </td>
         </tr>
       `;
@@ -259,6 +269,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const fn = btn.getAttribute("data-filename");
         switchTab("tab-json-studio");
         loadJsonFile(fn);
+      });
+    });
+
+    tbody.querySelectorAll(".btn-delete-file-table").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fn = btn.getAttribute("data-filename");
+        deleteJsonFile(fn);
       });
     });
   }
@@ -354,6 +372,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnViewModeTree = document.getElementById("view-mode-tree");
   const btnViewModeRaw = document.getElementById("view-mode-raw");
 
+  const btnDeleteJson = document.getElementById("btn-delete-json");
+
   function renderJsonSidebarFiles(files) {
     if (!files.length) {
       jsonSidebarFileList.innerHTML = `<li class="placeholder-text">No JSON files</li>`;
@@ -362,10 +382,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     jsonSidebarFileList.innerHTML = files.map((f) => {
       const activeClass = f.name === activeJsonFileName ? "active" : "";
+      const isProtected = f.name === "auth.json";
+
       return `
         <li class="file-item ${activeClass}" data-filename="${f.name}">
           <span><i class="fa-solid fa-file-code"></i> ${f.name}</span>
-          <span class="file-size">${f.itemCount} items</span>
+          <div class="file-item-right">
+            <span class="file-size">${f.itemCount || 0} items</span>
+            ${isProtected 
+              ? `<i class="fa-solid fa-lock text-gold" title="Read Only (auth.json)"></i>`
+              : `<button class="btn-sidebar-delete" data-filename="${f.name}" title="Delete ${f.name}"><i class="fa-solid fa-trash-can"></i></button>`
+            }
+          </div>
         </li>
       `;
     }).join("");
@@ -376,6 +404,14 @@ document.addEventListener("DOMContentLoaded", () => {
         loadJsonFile(fn);
       });
     });
+
+    jsonSidebarFileList.querySelectorAll(".btn-sidebar-delete").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fn = btn.getAttribute("data-filename");
+        deleteJsonFile(fn);
+      });
+    });
   }
 
   document.getElementById("btn-refresh-json-list").addEventListener("click", fetchFiles);
@@ -384,6 +420,12 @@ document.addEventListener("DOMContentLoaded", () => {
     activeJsonFileName = filename;
     jsonActiveFilename.textContent = filename;
     renderJsonSidebarFiles(getCurrentlyKnownFiles());
+
+    // Protected file handling (e.g. auth.json)
+    const isProtected = filename === "auth.json";
+    if (btnDeleteJson) {
+      btnDeleteJson.style.display = isProtected ? "none" : "inline-flex";
+    }
 
     try {
       const res = await fetch(`/api/files/${encodeURIComponent(filename)}`);
@@ -399,12 +441,58 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (activeJsonParsedData && typeof activeJsonParsedData === "object") items = Object.keys(activeJsonParsedData).length;
       jsonItemCount.textContent = `${items} items`;
 
-      jsonValidityStatus.innerHTML = `<i class="fa-solid fa-circle-check text-emerald"></i> Valid JSON`;
+      if (isProtected) {
+        jsonValidityStatus.innerHTML = `<i class="fa-solid fa-lock text-gold"></i> Protected Auth Session File (Read-Only)`;
+      } else {
+        jsonValidityStatus.innerHTML = `<i class="fa-solid fa-circle-check text-emerald"></i> Valid JSON`;
+      }
 
       renderCurrentJsonView();
     } catch (e) {
       showToast("error", "Error Loading File", e.message);
     }
+  }
+
+  async function deleteJsonFile(filename) {
+    if (filename === "auth.json" || filename === "package.json" || filename === "package-lock.json") {
+      showToast("warn", "Protected File", "auth.json is protected and cannot be deleted.");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete "${filename}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/files/${encodeURIComponent(filename)}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast("success", "File Deleted", `File "${filename}" deleted successfully.`);
+        if (activeJsonFileName === filename) {
+          activeJsonFileName = null;
+          jsonActiveFilename.textContent = "No File Selected";
+          jsonItemCount.textContent = "0 items";
+          jsonTreeView.innerHTML = `<div class="placeholder-text">Select a JSON file from the left sidebar to view content</div>`;
+          jsonTextarea.value = "";
+          if (btnDeleteJson) btnDeleteJson.style.display = "none";
+        }
+        fetchFiles();
+      } else {
+        throw new Error(data.error || "Deletion failed");
+      }
+    } catch (err) {
+      showToast("error", "Delete Failed", err.message);
+    }
+  }
+
+  if (btnDeleteJson) {
+    btnDeleteJson.addEventListener("click", () => {
+      if (activeJsonFileName) {
+        deleteJsonFile(activeJsonFileName);
+      }
+    });
   }
 
   function getCurrentlyKnownFiles() {
