@@ -144,24 +144,134 @@ async function scrapeProductDetails(options = {}, onLog = console.log, onProgres
           });
 
           const descriptionTab = page.locator("#description-tab");
-          await descriptionTab.click();
+          await descriptionTab.click().catch(() => {});
           await page.waitForSelector("#description.show", { timeout: 10000 }).catch(() => {});
 
-          let description = null;
+          let descriptionData = {
+            html: null,
+            raw_text: null,
+            parsed: {
+              summary: null,
+              features: [],
+              specifications: {},
+              package_includes: null,
+              sections: []
+            }
+          };
+
           const descriptionLocator = page.locator("#description .mb-4");
           if (await descriptionLocator.count()) {
-            description = await descriptionLocator.first().innerText();
-            description = description.replace(/\n\s*\n\s*\n/g, "\n\n").trim();
+            descriptionData = await descriptionLocator.first().evaluate((container) => {
+              if (!container) {
+                return {
+                  html: null,
+                  raw_text: null,
+                  parsed: {
+                    summary: null,
+                    features: [],
+                    specifications: {},
+                    package_includes: null,
+                    sections: []
+                  }
+                };
+              }
+
+              const htmlContent = container.innerHTML ? container.innerHTML.trim() : null;
+              const rawText = container.innerText ? container.innerText.trim() : null;
+              const features = [];
+              const specifications = {};
+              const sections = [];
+              let summary = null;
+              let packageIncludes = null;
+
+              // Extract <li> elements as features
+              const liElements = container.querySelectorAll("li");
+              liElements.forEach((li) => {
+                const text = li.innerText ? li.innerText.trim() : "";
+                if (text && !features.includes(text)) features.push(text);
+              });
+
+              // Process text lines
+              const lines = rawText ? rawText.split("\n").map(l => l.trim()).filter(Boolean) : [];
+
+              let currentSection = null;
+
+              lines.forEach((line) => {
+                // Key-Value specifications
+                if (line.includes(":") && !line.toLowerCase().startsWith("http") && line.indexOf(":") < 40) {
+                  const parts = line.split(":");
+                  const key = parts[0].trim();
+                  const val = parts.slice(1).join(":").trim();
+                  if (key && val) {
+                    const lowerKey = key.toLowerCase();
+                    if (lowerKey.includes("package") || lowerKey.includes("box include") || lowerKey.includes("includes") || lowerKey.includes("contain")) {
+                      packageIncludes = val;
+                    } else {
+                      specifications[key] = val;
+                    }
+                    return;
+                  }
+                }
+
+                // Bullet points starting with •, -, *
+                if (/^[•\-\*]\s*/.test(line)) {
+                  const featureText = line.replace(/^[•\-\*]\s*/, "").trim();
+                  if (featureText && !features.includes(featureText)) {
+                    features.push(featureText);
+                  }
+                  return;
+                }
+
+                // First long line as summary
+                if (!summary && line.length > 15 && !line.includes(":")) {
+                  summary = line;
+                }
+
+                // Section headers ending with : or keyword headers
+                if (line.endsWith(":") || /^(description|features|specifications|how to use|note|highlights|dimensions|material)/i.test(line)) {
+                  if (currentSection && currentSection.content.length > 0) {
+                    sections.push(currentSection);
+                  }
+                  currentSection = { title: line.replace(/:$/, "").trim(), content: [] };
+                } else if (currentSection) {
+                  currentSection.content.push(line);
+                }
+              });
+
+              if (currentSection && currentSection.content.length > 0) {
+                sections.push(currentSection);
+              }
+
+              return {
+                html: htmlContent,
+                raw_text: rawText,
+                parsed: {
+                  summary: summary || (lines.length > 0 ? lines[0] : null),
+                  features: features,
+                  specifications: specifications,
+                  package_includes: packageIncludes,
+                  sections: sections
+                }
+              };
+            });
           }
 
           const productData = {
-            deo_dap_product_id: productId,
-            price: price,
-            stock: stock,
-            weight: weight,
-            supplier_rating: supplierRating,
-            images: images,
-            description: description,
+            deo_dap_product_id: String(productId),
+            product_url: productUrl,
+            price: price || null,
+            stock: stock || null,
+            weight: weight || null,
+            supplier_rating: supplierRating || null,
+            images: images || [],
+            description: descriptionData.html,
+            description_parsed: {
+              summary: descriptionData.parsed.summary || null,
+              features: Array.isArray(descriptionData.parsed.features) ? descriptionData.parsed.features : [],
+              specifications: (descriptionData.parsed.specifications && typeof descriptionData.parsed.specifications === 'object') ? descriptionData.parsed.specifications : {},
+              package_includes: descriptionData.parsed.package_includes || null,
+              sections: Array.isArray(descriptionData.parsed.sections) ? descriptionData.parsed.sections : []
+            },
             scraped_at: new Date().toISOString()
           };
 
