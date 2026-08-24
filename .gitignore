@@ -1,0 +1,70 @@
+# ========================================
+# Dependencies
+# ========================================
+
+node_modules/
+
+# ========================================
+# Environment variables
+# ========================================
+
+.env
+.env.*
+!.env.example
+
+# ========================================
+# Playwright
+# ========================================
+
+playwright-report/
+playwright/.cache/
+test-results/
+blob-report/
+
+# Playwright authentication/session
+auth.json
+storageState.json
+storage-state.json
+
+# ========================================
+# Logs
+# ========================================
+
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ========================================
+# OS files
+# ========================================
+
+.DS_Store
+Thumbs.db
+
+# ========================================
+# IDE / Editor
+# ========================================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ========================================
+# Temporary files
+# ========================================
+
+tmp/
+temp/
+.cache/
+
+# ========================================
+# Scraping output files (optional)
+# Uncomment if you don't want to commit them
+# ========================================
+
+# products-data*.json
+# product_*.json
