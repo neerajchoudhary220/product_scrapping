@@ -4,13 +4,14 @@ const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
+const XLSX = require("xlsx");
 const taskRunnerManager = require("./lib/runner");
 
 // Parse PORT from process.env or command-line args (e.g. --port 8090 or -p 8090)
 function getPort() {
   if (process.env.PORT) return parseInt(process.env.PORT, 10);
   const args = process.argv.slice(2);
-  const portIdx = args.findIndex(arg => arg === '--port' || arg === '-p');
+  const portIdx = args.findIndex((arg) => arg === "--port" || arg === "-p");
   if (portIdx !== -1 && args[portIdx + 1]) {
     const parsed = parseInt(args[portIdx + 1], 10);
     if (!isNaN(parsed)) return parsed;
@@ -42,8 +43,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+  },
 });
 
 // Pass io to task runner
@@ -70,7 +71,7 @@ app.get("/api/auth/status", (req, res) => {
   res.json({
     hasAuth: exists,
     cookiesCount: sessionData?.cookies?.length || 0,
-    originsCount: sessionData?.origins?.length || 0
+    originsCount: sessionData?.origins?.length || 0,
   });
 });
 
@@ -83,7 +84,12 @@ app.get("/api/files", (req, res) => {
       if (!fs.existsSync(dirPath)) return;
       const files = fs.readdirSync(dirPath);
       files.forEach((file) => {
-        if (!file.endsWith(".json") || file === "package.json" || file === "package-lock.json") return;
+        if (
+          !file.endsWith(".json") ||
+          file === "package.json" ||
+          file === "package-lock.json"
+        )
+          return;
         const filePath = path.join(dirPath, file);
         const stat = fs.statSync(filePath);
         if (!stat.isFile()) return;
@@ -106,7 +112,7 @@ app.get("/api/files", (req, res) => {
           size: stat.size,
           mtime: stat.mtime,
           itemCount,
-          isArray
+          isArray,
         });
       });
     };
@@ -117,6 +123,79 @@ app.get("/api/files", (req, res) => {
     res.json({ files: Array.from(fileMap.values()) });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Export JSON Dataset as Excel file (.xlsx)
+app.get("/api/files/:filename/excel", (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = resolveFilePath(filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("File not found");
+    }
+
+    const content = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(content);
+
+    let rows = [];
+
+    if (Array.isArray(data)) {
+      rows = data.map((item, idx) => {
+        if (typeof item !== "object" || item === null) {
+          return { Index: idx + 1, "Deodp Product ID": String(item) };
+        }
+
+        return {
+          "Deodp Product ID": item.deo_dap_product_id || item.id || idx + 1,
+          Title: item.title || "",
+          Keywords: item.keywords || "",
+          Price: item.price || "",
+          "Profit %": item.profit_percentage || "",
+          "Profit Amount": item.profit_amount || "",
+          "Final Price": item.final_price || "",
+          Stock: item.stock || "",
+          Weight: item.weight || "",
+          "Supplier Rating": item.supplier_rating || "",
+          Images: Array.isArray(item.images)
+            ? item.images.join(", ")
+            : item.images || "",
+          "Product URL": item.product_url || "",
+          Description: item.description || "",
+          Summary: item.description_parsed?.summary || "",
+          Features: Array.isArray(item.description_parsed?.features)
+            ? item.description_parsed.features.join(" | ")
+            : "",
+        };
+      });
+    } else if (typeof data === "object" && data !== null) {
+      rows = [data];
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Scraped Data");
+
+    const excelBuffer = XLSX.write(workbook, {
+      type: "buffer",
+      bookType: "xlsx",
+    });
+
+    const baseName = filename.replace(/\.json$/i, "");
+    const excelFilename = `${baseName}_export.xlsx`;
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${excelFilename}"`,
+    );
+    res.send(excelBuffer);
+  } catch (error) {
+    res.status(500).send(`Excel Export Error: ${error.message}`);
   }
 });
 
@@ -167,7 +246,9 @@ app.post("/api/files/:filename", (req, res) => {
     fs.writeFileSync(filePath, stringData, "utf8");
     res.json({ success: true, filename, size: stringData.length });
   } catch (error) {
-    res.status(400).json({ error: `Invalid JSON or write error: ${error.message}` });
+    res
+      .status(400)
+      .json({ error: `Invalid JSON or write error: ${error.message}` });
   }
 });
 
@@ -175,8 +256,14 @@ app.post("/api/files/:filename", (req, res) => {
 app.delete("/api/files/:filename", (req, res) => {
   try {
     const filename = path.basename(req.params.filename);
-    if (filename === "auth.json" || filename === "package.json" || filename === "package-lock.json") {
-      return res.status(403).json({ error: "Protected system files cannot be deleted" });
+    if (
+      filename === "auth.json" ||
+      filename === "package.json" ||
+      filename === "package-lock.json"
+    ) {
+      return res
+        .status(403)
+        .json({ error: "Protected system files cannot be deleted" });
     }
 
     const filePath = resolveFilePath(filename);
@@ -194,7 +281,7 @@ app.get("/api/status", (req, res) => {
   res.json({
     isRunning: taskRunnerManager.isTaskRunning(),
     activeTask: taskRunnerManager.getActiveTaskInfo(),
-    authFileExists: fs.existsSync(AUTH_FILE)
+    authFileExists: fs.existsSync(AUTH_FILE),
   });
 });
 
@@ -208,7 +295,7 @@ io.on("connection", (socket) => {
   // Send current status on client connection
   socket.emit("status-update", {
     isRunning: taskRunnerManager.isTaskRunning(),
-    activeTask: taskRunnerManager.getActiveTaskInfo()
+    activeTask: taskRunnerManager.getActiveTaskInfo(),
   });
 
   // Start Task event handler

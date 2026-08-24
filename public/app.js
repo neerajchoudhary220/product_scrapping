@@ -252,6 +252,9 @@ document.addEventListener("DOMContentLoaded", () => {
               <button class="btn btn-secondary btn-sm btn-open-json" data-filename="${f.name}">
                 <i class="fa-solid fa-eye"></i> View
               </button>
+              <a href="/api/files/${encodeURIComponent(f.name)}/excel" download="${f.name.replace(/\.json$/i, '.xlsx')}" class="btn btn-success btn-sm" title="Export Excel Spreadsheet">
+                <i class="fa-solid fa-file-excel"></i> Excel
+              </a>
               ${isProtected 
                 ? `<span class="badge-item-count text-gold" style="font-size: 11px;"><i class="fa-solid fa-lock"></i> Read Only</span>`
                 : `<button class="btn btn-danger btn-sm btn-delete-file-table" data-filename="${f.name}" title="Delete file">
@@ -425,6 +428,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const isProtected = filename === "auth.json";
     if (btnDeleteJson) {
       btnDeleteJson.style.display = isProtected ? "none" : "inline-flex";
+    }
+
+    const btnExportExcel = document.getElementById("btn-export-excel");
+    if (btnExportExcel) {
+      btnExportExcel.href = `/api/files/${encodeURIComponent(filename)}/excel`;
+      btnExportExcel.setAttribute("download", filename.replace(/\.json$/i, "_export.xlsx"));
+      btnExportExcel.style.display = "inline-flex";
     }
 
     try {
