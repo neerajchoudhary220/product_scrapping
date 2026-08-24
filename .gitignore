@@ -63,9 +63,10 @@ temp/
 .cache/
 
 # ========================================
-# Scraping output files (optional)
-# Uncomment if you don't want to commit them
+# Scraping output files & Data folder
 # ========================================
 
-# products-data*.json
-# product_*.json
+data/
+data/*.json
+products-data*.json
+product_*.json
