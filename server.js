@@ -144,11 +144,11 @@ app.get("/api/files/:filename/excel", (req, res) => {
     if (Array.isArray(data)) {
       rows = data.map((item, idx) => {
         if (typeof item !== "object" || item === null) {
-          return { Index: idx + 1, "Deodp Product ID": String(item) };
+          return { Index: idx + 1, "Supplier Product ID": String(item) };
         }
 
         return {
-          "Deodp Product ID": item.deo_dap_product_id || item.id || idx + 1,
+          "Supplier Product ID": item.deo_dap_product_id || item.id || idx + 1,
           Title: item.title || "",
           Keywords: item.keywords || "",
           Price: item.price || "",
@@ -163,10 +163,10 @@ app.get("/api/files/:filename/excel", (req, res) => {
             : item.images || "",
           "Product URL": item.product_url || "",
           Description: item.description || "",
-          Summary: item.description_parsed?.summary || "",
-          Features: Array.isArray(item.description_parsed?.features)
-            ? item.description_parsed.features.join(" | ")
-            : "",
+          // Summary: item.description_parsed?.summary || "",
+          // Features: Array.isArray(item.description_parsed?.features)
+          //   ? item.description_parsed.features.join(" | ")
+          //   : "",
         };
       });
     } else if (typeof data === "object" && data !== null) {
