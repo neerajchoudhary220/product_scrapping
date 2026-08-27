@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
 const XLSX = require("xlsx");
+const { chromium } = require("playwright");
 const taskRunnerManager = require("./lib/runner");
 
 // Parse PORT from process.env or command-line args (e.g. --port 8090 or -p 8090)
@@ -23,6 +24,29 @@ const PORT = getPort();
 const WORKSPACE_DIR = __dirname;
 const DATA_DIR = path.join(WORKSPACE_DIR, "data");
 const AUTH_FILE = path.join(WORKSPACE_DIR, "auth.json");
+
+// Interactive session state variables
+let activeSessionBrowser = null;
+let activeSessionContext = null;
+let activeSessionPage = null;
+let activeSessionUrl = null;
+
+async function closeActiveSession() {
+  if (activeSessionContext) {
+    try {
+      await activeSessionContext.storageState({ path: AUTH_FILE });
+    } catch (err) {}
+  }
+  if (activeSessionBrowser) {
+    try {
+      await activeSessionBrowser.close();
+    } catch (err) {}
+  }
+  activeSessionBrowser = null;
+  activeSessionContext = null;
+  activeSessionPage = null;
+  activeSessionUrl = null;
+}
 
 // Ensure data folder exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -72,7 +96,127 @@ app.get("/api/auth/status", (req, res) => {
     hasAuth: exists,
     cookiesCount: sessionData?.cookies?.length || 0,
     originsCount: sessionData?.origins?.length || 0,
+    isSessionActive: activeSessionBrowser !== null,
+    activeUrl: activeSessionUrl || null,
   });
+});
+
+// Launch Interactive Browser Session (Headless: false)
+app.post("/api/session/launch", async (req, res) => {
+  try {
+    const { url = "https://wukusy.app/login", headless = false } = req.body;
+
+    // Close existing session browser if open
+    await closeActiveSession();
+
+    let contextOptions = {};
+    if (fs.existsSync(AUTH_FILE)) {
+      try {
+        contextOptions.storageState = AUTH_FILE;
+      } catch (e) {}
+    }
+
+    activeSessionBrowser = await chromium.launch({ headless: Boolean(headless) });
+    activeSessionContext = await activeSessionBrowser.newContext(contextOptions);
+    activeSessionPage = await activeSessionContext.newPage();
+    activeSessionUrl = url;
+
+    // Listen for manual browser close by user
+    activeSessionBrowser.on("disconnected", async () => {
+      console.log("🖥️ Interactive session browser closed.");
+      activeSessionBrowser = null;
+      activeSessionContext = null;
+      activeSessionPage = null;
+      activeSessionUrl = null;
+      
+      io.emit("session-status-changed", {
+        isSessionActive: false,
+        message: "Browser window closed by user.",
+      });
+      taskRunnerManager.broadcastLog("ℹ️ Interactive browser closed. Session saved to auth.json.", "info");
+    });
+
+    console.log(`🌐 Navigating interactive browser to ${url}...`);
+    await activeSessionPage.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+
+    // Save initial storage state
+    await activeSessionContext.storageState({ path: AUTH_FILE });
+
+    taskRunnerManager.broadcastLog(
+      `🚀 Interactive session opened at ${url} (Headless: ${headless}). Log in / handle popups directly in browser!`,
+      "info"
+    );
+
+    io.emit("session-status-changed", {
+      isSessionActive: true,
+      activeUrl: url,
+      message: "Browser window active.",
+    });
+
+    res.json({
+      success: true,
+      url,
+      message: "Interactive browser launched successfully.",
+    });
+  } catch (error) {
+    await closeActiveSession();
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Save Current Interactive Session State & Cache Cookies to auth.json
+app.post("/api/session/save", async (req, res) => {
+  try {
+    if (activeSessionContext) {
+      await activeSessionContext.storageState({ path: AUTH_FILE });
+    }
+
+    if (!fs.existsSync(AUTH_FILE)) {
+      return res.status(400).json({ error: "No session state or auth.json file found to save." });
+    }
+
+    const content = fs.readFileSync(AUTH_FILE, "utf8");
+    const sessionData = JSON.parse(content);
+
+    const cookiesCount = sessionData?.cookies?.length || 0;
+    const originsCount = sessionData?.origins?.length || 0;
+
+    taskRunnerManager.broadcastLog(
+      `💾 Session state successfully saved to auth.json! (${cookiesCount} cookies, ${originsCount} origins cached)`,
+      "success"
+    );
+
+    io.emit("session-saved", {
+      cookiesCount,
+      originsCount,
+    });
+
+    res.json({
+      success: true,
+      cookiesCount,
+      originsCount,
+      message: "Session & cookies cached successfully in auth.json.",
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Close Interactive Session
+app.post("/api/session/close", async (req, res) => {
+  try {
+    await closeActiveSession();
+    taskRunnerManager.broadcastLog("⏹️ Interactive session closed. Saved cookies to auth.json.", "info");
+
+    io.emit("session-status-changed", {
+      isSessionActive: false,
+      message: "Interactive session closed.",
+    });
+
+    res.json({ success: true, message: "Interactive session closed." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // List all JSON files in data directory & root
@@ -223,6 +367,52 @@ app.get("/api/files/:filename", (req, res) => {
   }
 });
 
+// Bulk Delete Multiple JSON Files
+app.post("/api/files/bulk-delete", (req, res) => {
+  try {
+    const { filenames } = req.body;
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ error: "Filenames array is required" });
+    }
+
+    const protectedFiles = new Set([
+      "auth.json",
+      "package.json",
+      "package-lock.json",
+    ]);
+    const deleted = [];
+    const skipped = [];
+    const errors = [];
+
+    filenames.forEach((rawName) => {
+      const filename = path.basename(rawName);
+      if (protectedFiles.has(filename)) {
+        skipped.push(filename);
+        return;
+      }
+      try {
+        const filePath = resolveFilePath(filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          deleted.push(filename);
+        }
+      } catch (err) {
+        errors.push({ filename, error: err.message });
+      }
+    });
+
+    res.json({
+      success: true,
+      deletedCount: deleted.length,
+      deleted,
+      skipped,
+      errors,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Save or Create JSON file inside data/ directory
 app.post("/api/files/:filename", (req, res) => {
   try {
@@ -252,7 +442,7 @@ app.post("/api/files/:filename", (req, res) => {
   }
 });
 
-// Delete JSON file
+// Delete Single JSON file
 app.delete("/api/files/:filename", (req, res) => {
   try {
     const filename = path.basename(req.params.filename);

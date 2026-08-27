@@ -103,6 +103,16 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchFiles();
   });
 
+  socket.on("session-status-changed", (data) => {
+    updateInteractiveSessionUI(data.isSessionActive, data.activeUrl);
+    fetchAuthStatus();
+  });
+
+  socket.on("session-saved", (data) => {
+    showToast("success", "Session Cached", `Saved ${data.cookiesCount} cookies & ${data.originsCount} storage keys to auth.json.`);
+    fetchAuthStatus();
+  });
+
   function updateRunnerStatusUI(isRunning, activeTask = null) {
     if (isRunning) {
       taskBadge.className = "status-badge badge-running";
@@ -113,6 +123,122 @@ document.addEventListener("DOMContentLoaded", () => {
       taskText.textContent = "Idle";
       btnGlobalStop.style.display = "none";
     }
+  }
+
+  // ==========================================================================
+  // INTERACTIVE SESSION MANAGER
+  // ==========================================================================
+
+  const btnLaunchSession = document.getElementById("btn-launch-session");
+  const btnSaveSession = document.getElementById("btn-save-session");
+  const btnCloseSession = document.getElementById("btn-close-session");
+  const inputSessionUrl = document.getElementById("input-session-url");
+
+  const sessionLiveStatusBadge = document.getElementById("session-live-status-badge");
+  const sessionLiveStatusText = document.getElementById("session-live-status-text");
+
+  const sessionSummaryCookies = document.getElementById("session-summary-cookies");
+  const sessionSummaryOrigins = document.getElementById("session-summary-origins");
+  const sessionSummaryAuthState = document.getElementById("session-summary-auth-state");
+
+  function updateInteractiveSessionUI(isSessionActive, activeUrl = null) {
+    if (isSessionActive) {
+      if (sessionLiveStatusBadge) {
+        sessionLiveStatusBadge.className = "session-live-badge badge-running";
+      }
+      if (sessionLiveStatusText) {
+        sessionLiveStatusText.textContent = "Browser Active (Headless: False)";
+      }
+      if (btnCloseSession) {
+        btnCloseSession.style.display = "inline-flex";
+      }
+      if (btnLaunchSession) {
+        btnLaunchSession.innerHTML = '<i class="fa-solid fa-rotate"></i> Re-Launch Browser';
+      }
+    } else {
+      if (sessionLiveStatusBadge) {
+        sessionLiveStatusBadge.className = "session-live-badge badge-idle";
+      }
+      if (sessionLiveStatusText) {
+        sessionLiveStatusText.textContent = "Browser Idle";
+      }
+      if (btnCloseSession) {
+        btnCloseSession.style.display = "none";
+      }
+      if (btnLaunchSession) {
+        btnLaunchSession.innerHTML = '<i class="fa-solid fa-arrow-up-right-from-square"></i> Launch Browser (Visible)';
+      }
+    }
+  }
+
+  if (btnLaunchSession) {
+    btnLaunchSession.addEventListener("click", async () => {
+      const targetUrl = inputSessionUrl ? (inputSessionUrl.value.trim() || "https://wukusy.app/login") : "https://wukusy.app/login";
+      btnLaunchSession.disabled = true;
+      btnLaunchSession.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Opening Browser...';
+
+      try {
+        const res = await fetch("/api/session/launch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: targetUrl, headless: false })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast("info", "Browser Opened", `Visible Playwright Chromium launched for: ${targetUrl}`);
+          updateInteractiveSessionUI(true, targetUrl);
+        } else {
+          showToast("error", "Launch Failed", data.error || "Failed to launch browser.");
+          updateInteractiveSessionUI(false);
+        }
+      } catch (err) {
+        showToast("error", "Network Error", err.message);
+        updateInteractiveSessionUI(false);
+      } finally {
+        btnLaunchSession.disabled = false;
+      }
+    });
+  }
+
+  if (btnSaveSession) {
+    btnSaveSession.addEventListener("click", async () => {
+      btnSaveSession.disabled = true;
+      btnSaveSession.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+      try {
+        const res = await fetch("/api/session/save", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          showToast("success", "Session Saved", `Cached ${data.cookiesCount} cookies to auth.json!`);
+          fetchAuthStatus();
+        } else {
+          showToast("error", "Save Failed", data.error || "Could not save session state.");
+        }
+      } catch (err) {
+        showToast("error", "Error", err.message);
+      } finally {
+        btnSaveSession.disabled = false;
+        btnSaveSession.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save & Cache Session';
+      }
+    });
+  }
+
+  if (btnCloseSession) {
+    btnCloseSession.addEventListener("click", async () => {
+      btnCloseSession.disabled = true;
+      try {
+        const res = await fetch("/api/session/close", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+          showToast("info", "Browser Closed", "Interactive session window closed & state saved.");
+          updateInteractiveSessionUI(false);
+          fetchAuthStatus();
+        }
+      } catch (err) {
+        showToast("error", "Error", err.message);
+      } finally {
+        btnCloseSession.disabled = false;
+      }
+    });
   }
 
   // ==========================================================================
@@ -190,10 +316,26 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStatusText.textContent = `Valid Session (${data.cookiesCount} cookies)`;
         sessionStatusText.style.color = "var(--color-emerald)";
         statAuthState.textContent = "Saved & Ready";
+        if (sessionSummaryCookies) sessionSummaryCookies.textContent = data.cookiesCount;
+        if (sessionSummaryOrigins) sessionSummaryOrigins.textContent = data.originsCount;
+        if (sessionSummaryAuthState) {
+          sessionSummaryAuthState.textContent = `Saved (${data.cookiesCount} cookies)`;
+          sessionSummaryAuthState.style.color = "var(--color-emerald)";
+        }
       } else {
         sessionStatusText.textContent = "No auth.json Session!";
         sessionStatusText.style.color = "var(--color-gold)";
         statAuthState.textContent = "Missing auth.json";
+        if (sessionSummaryCookies) sessionSummaryCookies.textContent = "0";
+        if (sessionSummaryOrigins) sessionSummaryOrigins.textContent = "0";
+        if (sessionSummaryAuthState) {
+          sessionSummaryAuthState.textContent = "No auth.json";
+          sessionSummaryAuthState.style.color = "var(--color-gold)";
+        }
+      }
+
+      if (data.isSessionActive) {
+        updateInteractiveSessionUI(true, data.activeUrl);
       }
     } catch (e) {}
   }
@@ -229,10 +371,78 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("stat-total-products").textContent = totalProducts;
   }
 
+  // ==========================================================================
+  // BULK FILE DELETION & SELECTION MANAGER
+  // ==========================================================================
+
+  const chkSelectAllFiles = document.getElementById("chk-select-all-files");
+  const btnBulkDeleteFiles = document.getElementById("btn-bulk-delete-files");
+  const bulkDeleteCount = document.getElementById("bulk-delete-count");
+
+  function updateBulkDeleteUI() {
+    const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
+    const count = checkedBoxes.length;
+    if (bulkDeleteCount) bulkDeleteCount.textContent = count;
+    if (btnBulkDeleteFiles) {
+      btnBulkDeleteFiles.style.display = count > 0 ? "inline-flex" : "none";
+    }
+    if (chkSelectAllFiles) {
+      const allBoxes = document.querySelectorAll(".chk-select-file");
+      chkSelectAllFiles.checked = allBoxes.length > 0 && count === allBoxes.length;
+    }
+  }
+
+  if (chkSelectAllFiles) {
+    chkSelectAllFiles.addEventListener("change", () => {
+      const isChecked = chkSelectAllFiles.checked;
+      document.querySelectorAll(".chk-select-file").forEach((chk) => {
+        chk.checked = isChecked;
+      });
+      updateBulkDeleteUI();
+    });
+  }
+
+  if (btnBulkDeleteFiles) {
+    btnBulkDeleteFiles.addEventListener("click", async () => {
+      const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
+      const selectedFiles = Array.from(checkedBoxes).map(chk => chk.getAttribute("data-filename"));
+
+      if (selectedFiles.length === 0) return;
+
+      const confirmMsg = `Are you sure you want to delete ${selectedFiles.length} selected JSON file(s)?\n\nSelected:\n• ${selectedFiles.join("\n• ")}`;
+      if (!confirm(confirmMsg)) return;
+
+      btnBulkDeleteFiles.disabled = true;
+      btnBulkDeleteFiles.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Deleting...';
+
+      try {
+        const res = await fetch("/api/files/bulk-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filenames: selectedFiles }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast("success", "Files Deleted", `Successfully deleted ${data.deletedCount} file(s).`);
+          fetchFiles();
+        } else {
+          showToast("error", "Delete Failed", data.error || "Failed to delete selected files.");
+        }
+      } catch (err) {
+        showToast("error", "Error", err.message);
+      } finally {
+        btnBulkDeleteFiles.disabled = false;
+        btnBulkDeleteFiles.innerHTML = `<i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="bulk-delete-count">0</span>)`;
+        updateBulkDeleteUI();
+      }
+    });
+  }
+
   function renderDashboardFilesTable(files) {
     const tbody = document.querySelector("#dashboard-files-table tbody");
     if (!files.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center">No JSON files found in project.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center">No JSON files found in project.</td></tr>`;
+      updateBulkDeleteUI();
       return;
     }
 
@@ -243,6 +453,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
       return `
         <tr>
+          <td style="text-align: center;">
+            ${isProtected 
+              ? `<i class="fa-solid fa-lock text-gold" style="font-size: 12px;" title="Protected file"></i>`
+              : `<input type="checkbox" class="chk-select-file custom-chk" data-filename="${f.name}">`
+            }
+          </td>
           <td><strong style="color: var(--color-cyan)"><i class="fa-solid fa-file-code"></i> ${f.name}</strong></td>
           <td>${sizeKB}</td>
           <td><span class="badge-item-count">${f.itemCount} items</span></td>
@@ -282,6 +498,14 @@ document.addEventListener("DOMContentLoaded", () => {
         deleteJsonFile(fn);
       });
     });
+
+    tbody.querySelectorAll(".chk-select-file").forEach((chk) => {
+      chk.addEventListener("change", () => {
+        updateBulkDeleteUI();
+      });
+    });
+
+    updateBulkDeleteUI();
   }
 
   function populateSelectOptions(files) {

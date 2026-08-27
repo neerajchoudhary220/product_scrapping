@@ -151,6 +151,59 @@
             </div>
           </div>
 
+          <!-- INTERACTIVE SESSION & AUTH MANAGER CARD -->
+          <div class="card session-manager-card margin-bottom-lg">
+            <div class="card-header flex-between">
+              <h3>
+                <i class="fa-solid fa-user-shield text-gold"></i>
+                Interactive Browser & Cookie Manager
+              </h3>
+              <div class="session-live-badge badge-idle" id="session-live-status-badge">
+                <span class="dot"></span>
+                <span id="session-live-status-text">Browser Idle</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <p class="section-desc">
+                Launch a visible Chromium browser (<strong>Headless: False</strong>) to log in manually, bypass popups/CAPTCHAs, or navigate any URL. Click <strong>Save & Cache Session</strong> to store cookies & localStorage into <code>auth.json</code> for seamless headless scraping tasks.
+              </p>
+              <div class="session-form-row">
+                <div class="form-group flex-1">
+                  <label for="input-session-url">Scraping / Login Target URL</label>
+                  <div class="input-with-icon">
+                    <i class="fa-solid fa-globe"></i>
+                    <input type="url" id="input-session-url" class="form-control" value="https://wukusy.app/login" placeholder="https://wukusy.app/login">
+                  </div>
+                </div>
+                <div class="form-actions-inline">
+                  <button class="btn btn-gold" id="btn-launch-session">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i> Launch Browser (Visible)
+                  </button>
+                  <button class="btn btn-emerald" id="btn-save-session">
+                    <i class="fa-solid fa-floppy-disk"></i> Save & Cache Session
+                  </button>
+                  <button class="btn btn-outline-danger" id="btn-close-session" style="display: none;">
+                    <i class="fa-solid fa-xmark"></i> Close Browser
+                  </button>
+                </div>
+              </div>
+              <div class="session-stats-summary" id="session-stats-summary">
+                <div class="summary-pill">
+                  <span class="pill-label">Saved Cookies:</span>
+                  <strong id="session-summary-cookies">0</strong>
+                </div>
+                <div class="summary-pill">
+                  <span class="pill-label">Origin Storage:</span>
+                  <strong id="session-summary-origins">0</strong>
+                </div>
+                <div class="summary-pill">
+                  <span class="pill-label">State Status:</span>
+                  <strong id="session-summary-auth-state">Checking...</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="grid-2-col">
             <!-- QUICK ENGINE LAUNCHERS -->
             <div class="card">
@@ -185,15 +238,21 @@
             <div class="card">
               <div class="card-header flex-between">
                 <h3><i class="fa-solid fa-folder-open text-purple"></i> Project JSON Files</h3>
-                <button class="btn btn-outline btn-sm" id="btn-refresh-dashboard-files">
-                  <i class="fa-solid fa-rotate-right"></i> Refresh
-                </button>
+                <div class="card-header-actions" style="display: flex; align-items: center; gap: 10px;">
+                  <button class="btn btn-outline-danger btn-sm" id="btn-bulk-delete-files" style="display: none;">
+                    <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="bulk-delete-count">0</span>)
+                  </button>
+                  <button class="btn btn-outline btn-sm" id="btn-refresh-dashboard-files">
+                    <i class="fa-solid fa-rotate-right"></i> Refresh
+                  </button>
+                </div>
               </div>
               <div class="card-body">
                 <div class="table-responsive">
                   <table class="data-table" id="dashboard-files-table">
                     <thead>
                       <tr>
+                        <th style="width: 40px; text-align: center;"><input type="checkbox" id="chk-select-all-files" class="custom-chk" title="Select All Files"></th>
                         <th>File Name</th>
                         <th>Size</th>
                         <th>Items</th>
@@ -202,7 +261,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <tr><td colspan="5" class="text-center">Loading files...</td></tr>
+                      <tr><td colspan="6" class="text-center">Loading files...</td></tr>
                     </tbody>
                   </table>
                 </div>
