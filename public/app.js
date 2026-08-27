@@ -66,7 +66,17 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     progressTaskName.textContent = names[task.type] || "Running Process...";
     progressBanner.style.display = "flex";
-    showToast("info", "Task Started", `Process [${task.type}] has been launched.`);
+    showToast("info", "Task Started 🚀", `Process [${names[task.type] || task.type}] has been launched.`);
+  });
+
+  socket.on("task-enqueued", (data) => {
+    const names = {
+      "scrape-ids": "Extract Product IDs Engine",
+      "scrape-details": "Extract Product Details Engine",
+      "update-prices": "Price Updater Engine"
+    };
+    const name = names[data.taskType] || data.taskType;
+    showToast("warn", "📥 Added to Pending Queue", `[${name}] queued at position #${data.position}. It will run automatically when active task finishes.`);
   });
 
   socket.on("task-log", (log) => {
@@ -112,6 +122,250 @@ document.addEventListener("DOMContentLoaded", () => {
     showToast("success", "Session Cached", `Saved ${data.cookiesCount} cookies & ${data.originsCount} storage keys to auth.json.`);
     fetchAuthStatus();
   });
+
+  socket.on("queue-updated", (status) => {
+    renderQueueStatusUI(status);
+  });
+
+  // ==========================================================================
+  // PROCESS MONITOR & RIGHT SIDEBAR TASK QUEUE DRAWER
+  // ==========================================================================
+
+  const btnToggleQueueDrawer = document.getElementById("btn-toggle-queue-drawer");
+  const btnCloseQueueDrawer = document.getElementById("btn-close-queue-drawer");
+  const queueDrawerOverlay = document.getElementById("queue-drawer-overlay");
+  const queueDrawer = document.getElementById("queue-drawer");
+  const queueHeaderCount = document.getElementById("queue-header-count");
+
+  const subtabBtnQueue = document.getElementById("subtab-btn-queue");
+  const subtabBtnHistory = document.getElementById("subtab-btn-history");
+  const subpaneQueue = document.getElementById("subpane-queue");
+  const subpaneHistory = document.getElementById("subpane-history");
+  const subtabQueueCount = document.getElementById("subtab-queue-count");
+  const subtabHistoryCount = document.getElementById("subtab-history-count");
+
+  const activeTaskContainer = document.getElementById("active-task-container");
+  const queueListContainer = document.getElementById("queue-list-container");
+  const historyListContainer = document.getElementById("history-list-container");
+  const btnClearQueue = document.getElementById("btn-clear-queue");
+  const btnClearHistory = document.getElementById("btn-clear-history");
+
+  function openQueueDrawer() {
+    if (queueDrawer) queueDrawer.classList.add("open");
+    if (queueDrawerOverlay) queueDrawerOverlay.classList.add("active");
+  }
+
+  function closeQueueDrawer() {
+    if (queueDrawer) queueDrawer.classList.remove("open");
+    if (queueDrawerOverlay) queueDrawerOverlay.classList.remove("active");
+  }
+
+  if (btnToggleQueueDrawer) {
+    btnToggleQueueDrawer.addEventListener("click", () => {
+      if (queueDrawer && queueDrawer.classList.contains("open")) {
+        closeQueueDrawer();
+      } else {
+        openQueueDrawer();
+      }
+    });
+  }
+
+  if (btnCloseQueueDrawer) {
+    btnCloseQueueDrawer.addEventListener("click", closeQueueDrawer);
+  }
+
+  if (queueDrawerOverlay) {
+    queueDrawerOverlay.addEventListener("click", closeQueueDrawer);
+  }
+
+  // Drawer Sub-Tab switching
+  if (subtabBtnQueue && subtabBtnHistory) {
+    subtabBtnQueue.addEventListener("click", () => {
+      subtabBtnQueue.classList.add("active");
+      subtabBtnHistory.classList.remove("active");
+      if (subpaneQueue) subpaneQueue.style.display = "flex";
+      if (subpaneHistory) subpaneHistory.style.display = "none";
+    });
+
+    subtabBtnHistory.addEventListener("click", () => {
+      subtabBtnHistory.classList.add("active");
+      subtabBtnQueue.classList.remove("active");
+      if (subpaneHistory) subpaneHistory.style.display = "flex";
+      if (subpaneQueue) subpaneQueue.style.display = "none";
+    });
+  }
+
+  function renderQueueStatusUI(status) {
+    const { activeTask, queue = [], history = [] } = status || {};
+    const hasActive = Boolean(activeTask);
+    const queueLength = queue ? queue.length : 0;
+    const historyLength = history ? history.length : 0;
+
+    if (subtabQueueCount) subtabQueueCount.textContent = queueLength;
+    if (subtabHistoryCount) subtabHistoryCount.textContent = historyLength;
+
+    if (queueHeaderCount) {
+      if (hasActive && queueLength > 0) {
+        queueHeaderCount.textContent = `1 Running, ${queueLength} Pending`;
+        queueHeaderCount.style.background = "rgba(6, 182, 212, 0.3)";
+        queueHeaderCount.style.color = "var(--color-cyan)";
+      } else if (hasActive) {
+        queueHeaderCount.textContent = `1 Running`;
+        queueHeaderCount.style.background = "rgba(6, 182, 212, 0.3)";
+        queueHeaderCount.style.color = "var(--color-cyan)";
+      } else if (queueLength > 0) {
+        queueHeaderCount.textContent = `${queueLength} Pending`;
+        queueHeaderCount.style.background = "rgba(245, 158, 11, 0.3)";
+        queueHeaderCount.style.color = "var(--color-gold)";
+      } else {
+        queueHeaderCount.textContent = `${historyLength} Done`;
+        queueHeaderCount.style.background = "rgba(255, 255, 255, 0.1)";
+        queueHeaderCount.style.color = "var(--text-muted)";
+      }
+    }
+
+    const taskNames = {
+      "scrape-ids": "Extract Product IDs Engine",
+      "scrape-details": "Extract Product Details Engine",
+      "update-prices": "Price Updater Engine"
+    };
+
+    const taskIcons = {
+      "scrape-ids": "fa-solid fa-list-check text-cyan",
+      "scrape-details": "fa-solid fa-boxes-packing text-emerald",
+      "update-prices": "fa-solid fa-tags text-purple"
+    };
+
+    // Render Active Task
+    if (activeTaskContainer) {
+      if (hasActive) {
+        const name = taskNames[activeTask.type] || activeTask.type;
+        const icon = taskIcons[activeTask.type] || "fa-solid fa-gear";
+        const targetDetail = activeTask.payload?.link || activeTask.payload?.inputFile || activeTask.payload?.outputFile || "";
+
+        activeTaskContainer.innerHTML = `
+          <div class="active-task-box" style="background: rgba(6, 182, 212, 0.08); border: 1px solid var(--color-cyan); padding: 12px 14px; border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span class="queue-pos" style="background: var(--color-cyan); color: #fff; font-size: 10px;"><i class="fa-solid fa-spinner fa-spin"></i> RUNNING NOW</span>
+              <button class="btn btn-danger btn-xs" id="btn-stop-active-task-inline" style="padding: 4px 8px; font-size: 11px;">
+                <i class="fa-solid fa-circle-stop"></i> Stop
+              </button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
+              <div class="queue-icon"><i class="${icon}"></i></div>
+              <div class="queue-info">
+                <strong class="queue-title" style="font-size: 13px;">${name}</strong>
+                <span class="queue-detail" style="font-size: 11px;">${targetDetail ? targetDetail : 'Active Task'}</span>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const btnStopInline = document.getElementById("btn-stop-active-task-inline");
+        if (btnStopInline) {
+          btnStopInline.addEventListener("click", () => {
+            socket.emit("stop-task");
+          });
+        }
+      } else {
+        activeTaskContainer.innerHTML = `<div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 10px 0; border: 1px dashed var(--border-color); border-radius: 6px;">No active background task</div>`;
+      }
+    }
+
+    // Render Queued Pending Tasks
+    if (queueListContainer) {
+      if (queueLength > 0) {
+        queueListContainer.innerHTML = queue.map((item, idx) => {
+          const name = taskNames[item.type] || item.type;
+          const icon = taskIcons[item.type] || "fa-solid fa-gears";
+          const targetDetail = item.payload?.link || item.payload?.inputFile || item.payload?.outputFile || "";
+
+          return `
+            <div class="queue-item" style="padding: 8px 12px;">
+              <div class="queue-item-left" style="gap: 10px;">
+                <span class="queue-pos">#${idx + 1}</span>
+                <div class="queue-icon" style="font-size: 14px;"><i class="${icon}"></i></div>
+                <div class="queue-info">
+                  <strong class="queue-title" style="font-size: 12px;">${name}</strong>
+                  <span class="queue-detail" style="font-size: 10px;">${targetDetail ? targetDetail : 'Queued Task'}</span>
+                </div>
+              </div>
+              <div class="queue-item-right" style="gap: 6px;">
+                <button class="btn btn-danger btn-xs btn-remove-queue-item" data-taskid="${item.id}" title="Cancel queued task" style="padding: 3px 6px; font-size: 10px;">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        queueListContainer.querySelectorAll(".btn-remove-queue-item").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const taskId = btn.getAttribute("data-taskid");
+            socket.emit("remove-queued-task", { taskId });
+          });
+        });
+      } else {
+        queueListContainer.innerHTML = `<div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 10px 0;">Queue is empty</div>`;
+      }
+    }
+
+    // Render Execution History & Status Log
+    if (historyListContainer) {
+      if (history && history.length > 0) {
+        historyListContainer.innerHTML = history.map((item) => {
+          const name = taskNames[item.type] || item.type;
+          const icon = taskIcons[item.type] || "fa-solid fa-gears";
+          const targetDetail = item.payload?.link || item.payload?.inputFile || item.payload?.outputFile || "";
+
+          let statusBadge = '';
+          if (item.status === 'completed') {
+            statusBadge = `<span class="badge-status-pill badge-status-completed"><i class="fa-solid fa-circle-check"></i> Completed</span>`;
+          } else if (item.status === 'cancelled') {
+            statusBadge = `<span class="badge-status-pill badge-status-cancelled"><i class="fa-solid fa-circle-stop"></i> Stopped</span>`;
+          } else {
+            statusBadge = `<span class="badge-status-pill badge-status-failed"><i class="fa-solid fa-circle-xmark"></i> Failed</span>`;
+          }
+
+          const durationSec = Math.round(item.durationMs / 1000);
+          const durationText = durationSec < 60 ? `${durationSec}s` : `${Math.floor(durationSec/60)}m ${durationSec % 60}s`;
+
+          return `
+            <div class="history-item">
+              <div class="history-item-header">
+                <strong class="queue-title" style="font-size: 12px;"><i class="${icon}" style="font-size: 12px;"></i> ${name}</strong>
+                ${statusBadge}
+              </div>
+              <div class="history-item-body">
+                <span class="queue-detail" style="font-size: 10px;">${targetDetail}</span>
+                <span class="history-meta" style="font-size: 10px; color: var(--text-dim);">
+                  ${new Date(item.endTime).toLocaleTimeString()} (${durationText})
+                </span>
+              </div>
+            </div>
+          `;
+        }).join("");
+      } else {
+        historyListContainer.innerHTML = `<div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 14px 0;">No completed history logs</div>`;
+      }
+    }
+  }
+
+  if (btnClearQueue) {
+    btnClearQueue.addEventListener("click", () => {
+      if (confirm("Are you sure you want to clear all pending tasks from the queue?")) {
+        socket.emit("clear-queue");
+      }
+    });
+  }
+
+  if (btnClearHistory) {
+    btnClearHistory.addEventListener("click", () => {
+      if (confirm("Are you sure you want to clear execution history logs?")) {
+        socket.emit("clear-history");
+      }
+    });
+  }
 
   function updateRunnerStatusUI(isRunning, activeTask = null) {
     if (isRunning) {

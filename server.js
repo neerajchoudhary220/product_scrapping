@@ -475,6 +475,31 @@ app.get("/api/status", (req, res) => {
   });
 });
 
+// Get Task Queue Status
+app.get("/api/tasks/queue", (req, res) => {
+  res.json(taskRunnerManager.getQueueStatus());
+});
+
+// Remove single task from queue
+app.post("/api/tasks/queue/remove", (req, res) => {
+  const { taskId } = req.body;
+  if (!taskId) return res.status(400).json({ error: "taskId is required" });
+  const removed = taskRunnerManager.removeQueuedTask(taskId);
+  res.json({ success: removed });
+});
+
+// Clear all queued tasks
+app.post("/api/tasks/queue/clear", (req, res) => {
+  const clearedCount = taskRunnerManager.clearQueue();
+  res.json({ success: true, clearedCount });
+});
+
+// Clear task execution history
+app.post("/api/tasks/history/clear", (req, res) => {
+  const clearedCount = taskRunnerManager.clearHistory();
+  res.json({ success: true, clearedCount });
+});
+
 // =====================================
 // SOCKET.IO REALTIME HANDLERS
 // =====================================
@@ -482,20 +507,38 @@ app.get("/api/status", (req, res) => {
 io.on("connection", (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
 
-  // Send current status on client connection
+  // Send current status & queue state on client connection
   socket.emit("status-update", {
     isRunning: taskRunnerManager.isTaskRunning(),
     activeTask: taskRunnerManager.getActiveTaskInfo(),
   });
+  socket.emit("queue-updated", taskRunnerManager.getQueueStatus());
 
-  // Start Task event handler
+  // Start Task (Enqueue) event handler
   socket.on("start-task", async (data) => {
     const { taskType, payload } = data;
     try {
-      await taskRunnerManager.runTask(taskType, payload);
+      await taskRunnerManager.enqueueTask(taskType, payload);
     } catch (error) {
       console.error(`Socket task trigger error: ${error.message}`);
     }
+  });
+
+  // Remove queued task
+  socket.on("remove-queued-task", (data) => {
+    if (data?.taskId) {
+      taskRunnerManager.removeQueuedTask(data.taskId);
+    }
+  });
+
+  // Clear queue
+  socket.on("clear-queue", () => {
+    taskRunnerManager.clearQueue();
+  });
+
+  // Clear task history
+  socket.on("clear-history", () => {
+    taskRunnerManager.clearHistory();
   });
 
   // Stop Task event handler

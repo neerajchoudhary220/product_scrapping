@@ -89,6 +89,12 @@
             <span id="task-text">Idle</span>
           </div>
 
+          <!-- Task Queue Drawer Toggle Button -->
+          <button class="btn btn-secondary btn-sm" id="btn-toggle-queue-drawer" title="Toggle Task Queue & Process Monitor">
+            <i class="fa-solid fa-layer-group text-cyan"></i> Task Queue
+            <span class="badge-item-count" id="queue-header-count" style="background: rgba(6, 182, 212, 0.2); color: var(--color-cyan); margin-left: 4px;">0</span>
+          </button>
+
           <!-- Stop Task Button -->
           <button class="btn btn-danger btn-sm" id="btn-global-stop" style="display: none;">
             <i class="fa-solid fa-circle-stop"></i> Stop Task
@@ -311,7 +317,7 @@
 
                 <div class="form-actions">
                   <button type="submit" class="btn btn-primary" id="btn-start-ids">
-                    <i class="fa-solid fa-play"></i> Start Extracting Product IDs
+                    <i class="fa-solid fa-plus"></i> Add to Queue / Start Extracting Product IDs
                   </button>
                 </div>
               </form>
@@ -355,7 +361,7 @@
 
                 <div class="form-actions">
                   <button type="submit" class="btn btn-success" id="btn-start-details">
-                    <i class="fa-solid fa-play"></i> Start Extracting Details
+                    <i class="fa-solid fa-plus"></i> Add to Queue / Start Extracting Details
                   </button>
                 </div>
               </form>
@@ -409,8 +415,8 @@
                 </div>
 
                 <div class="form-actions">
-                  <button type="submit" class="btn btn-warning" id="btn-start-prices">
-                    <i class="fa-solid fa-play"></i> Start Calculating & Updating Prices
+                  <button type="submit" class="btn btn-warning" id="btn-start-price">
+                    <i class="fa-solid fa-plus"></i> Add to Queue / Start Calculation & Update Price
                   </button>
                 </div>
               </form>
@@ -526,6 +532,61 @@
       </div>
     </main>
   </div>
+
+  <!-- RIGHT SIDEBAR DRAWER: TASK QUEUE & PROCESS MONITOR -->
+  <div class="drawer-overlay" id="queue-drawer-overlay"></div>
+  <aside class="right-drawer" id="queue-drawer">
+    <div class="drawer-header">
+      <div class="drawer-title">
+        <i class="fa-solid fa-layer-group text-cyan"></i>
+        <h3>Process & Task Queue</h3>
+      </div>
+      <button class="btn-drawer-close" id="btn-close-queue-drawer" title="Close Panel">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- Drawer Sub-Navigation Tabs -->
+    <div class="drawer-subtabs">
+      <button class="drawer-subtab active" id="subtab-btn-queue">
+        <i class="fa-solid fa-list-check"></i> Queue (<span id="subtab-queue-count">0</span>)
+      </button>
+      <button class="drawer-subtab" id="subtab-btn-history">
+        <i class="fa-solid fa-clock-rotate-left"></i> Completed Log (<span id="subtab-history-count">0</span>)
+      </button>
+    </div>
+    
+    <div class="drawer-body">
+      <!-- Active Running Task Section -->
+      <div id="active-task-container"></div>
+
+      <!-- SUBPANE 1: PENDING QUEUE VIEW -->
+      <div class="drawer-subpane active" id="subpane-queue">
+        <div class="queue-section-header">
+          <span class="section-subtitle">Pending Tasks</span>
+          <button class="btn btn-outline-danger btn-xs" id="btn-clear-queue">
+            <i class="fa-solid fa-broom"></i> Clear Queue
+          </button>
+        </div>
+        <div class="queue-list" id="queue-list-container">
+          <!-- Dynamically populated queue items -->
+        </div>
+      </div>
+
+      <!-- SUBPANE 2: COMPLETED HISTORY LOG VIEW -->
+      <div class="drawer-subpane" id="subpane-history" style="display: none;">
+        <div class="queue-section-header">
+          <span class="section-subtitle">Completed History Log</span>
+          <button class="btn btn-outline-danger btn-xs" id="btn-clear-history">
+            <i class="fa-solid fa-broom"></i> Clear History
+          </button>
+        </div>
+        <div class="history-list" id="history-list-container">
+          <!-- Dynamically populated history items -->
+        </div>
+      </div>
+    </div>
+  </aside>
 
   <!-- TOAST NOTIFICATIONS CONTAINER -->
   <div class="toast-container" id="toast-container"></div>
