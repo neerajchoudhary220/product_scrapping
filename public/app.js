@@ -626,20 +626,33 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ==========================================================================
-  // BULK FILE DELETION & SELECTION MANAGER
+  // BULK FILE ACTIONS (DELETE & DOWNLOAD) MANAGER
   // ==========================================================================
 
   const chkSelectAllFiles = document.getElementById("chk-select-all-files");
   const btnBulkDeleteFiles = document.getElementById("btn-bulk-delete-files");
   const bulkDeleteCount = document.getElementById("bulk-delete-count");
+  const bulkDownloadWrapper = document.getElementById("bulk-download-wrapper");
+  const bulkDownloadCount = document.getElementById("bulk-download-count");
+  const btnBulkDownloadMenu = document.getElementById("btn-bulk-download-menu");
+  const bulkDownloadDropdown = document.getElementById("bulk-download-dropdown");
 
-  function updateBulkDeleteUI() {
+  function updateBulkActionsUI() {
     const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
     const count = checkedBoxes.length;
     if (bulkDeleteCount) bulkDeleteCount.textContent = count;
+    if (bulkDownloadCount) bulkDownloadCount.textContent = count;
+
     if (btnBulkDeleteFiles) {
       btnBulkDeleteFiles.style.display = count > 0 ? "inline-flex" : "none";
     }
+    if (bulkDownloadWrapper) {
+      bulkDownloadWrapper.style.display = count > 0 ? "inline-block" : "none";
+      if (count === 0 && bulkDownloadDropdown) {
+        bulkDownloadDropdown.style.display = "none";
+      }
+    }
+
     if (chkSelectAllFiles) {
       const allBoxes = document.querySelectorAll(".chk-select-file");
       chkSelectAllFiles.checked = allBoxes.length > 0 && count === allBoxes.length;
@@ -652,10 +665,11 @@ document.addEventListener("DOMContentLoaded", () => {
       document.querySelectorAll(".chk-select-file").forEach((chk) => {
         chk.checked = isChecked;
       });
-      updateBulkDeleteUI();
+      updateBulkActionsUI();
     });
   }
 
+  // Bulk Delete Click Event
   if (btnBulkDeleteFiles) {
     btnBulkDeleteFiles.addEventListener("click", async () => {
       const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
@@ -687,8 +701,100 @@ document.addEventListener("DOMContentLoaded", () => {
       } finally {
         btnBulkDeleteFiles.disabled = false;
         btnBulkDeleteFiles.innerHTML = `<i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="bulk-delete-count">0</span>)`;
-        updateBulkDeleteUI();
+        updateBulkActionsUI();
       }
+    });
+  }
+
+  // Bulk Download Dropdown Toggle
+  if (btnBulkDownloadMenu && bulkDownloadDropdown) {
+    btnBulkDownloadMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = bulkDownloadDropdown.style.display === "block";
+      bulkDownloadDropdown.style.display = isVisible ? "none" : "block";
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!bulkDownloadDropdown.contains(e.target) && e.target !== btnBulkDownloadMenu) {
+        bulkDownloadDropdown.style.display = "none";
+      }
+    });
+  }
+
+  // Helper for Bulk Download APIs
+  async function handleBulkDownload(endpoint, defaultFilename) {
+    const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
+    const selectedFiles = Array.from(checkedBoxes).map(chk => chk.getAttribute("data-filename"));
+
+    if (selectedFiles.length === 0) return;
+
+    if (bulkDownloadDropdown) bulkDownloadDropdown.style.display = "none";
+
+    const origHTML = btnBulkDownloadMenu ? btnBulkDownloadMenu.innerHTML : "";
+    if (btnBulkDownloadMenu) {
+      btnBulkDownloadMenu.disabled = true;
+      btnBulkDownloadMenu.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+    }
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filenames: selectedFiles }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Download failed" }));
+        throw new Error(errData.error || "Failed to download selected files.");
+      }
+
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get("Content-Disposition");
+      let filename = defaultFilename;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match && match[1]) filename = match[1];
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      showToast("success", "Download Started", `Successfully downloaded ${selectedFiles.length} selected file(s).`);
+    } catch (err) {
+      showToast("error", "Download Error", err.message);
+    } finally {
+      if (btnBulkDownloadMenu) {
+        btnBulkDownloadMenu.disabled = false;
+        btnBulkDownloadMenu.innerHTML = origHTML;
+      }
+      updateBulkActionsUI();
+    }
+  }
+
+  const btnBulkDlJson = document.getElementById("btn-bulk-dl-json");
+  if (btnBulkDlJson) {
+    btnBulkDlJson.addEventListener("click", () => {
+      handleBulkDownload("/api/files/bulk-download/json", "selected_json_files.zip");
+    });
+  }
+
+  const btnBulkDlExcelZip = document.getElementById("btn-bulk-dl-excel-zip");
+  if (btnBulkDlExcelZip) {
+    btnBulkDlExcelZip.addEventListener("click", () => {
+      handleBulkDownload("/api/files/bulk-download/excel", "selected_excel_files.zip");
+    });
+  }
+
+  const btnBulkDlExcelCombined = document.getElementById("btn-bulk-dl-excel-combined");
+  if (btnBulkDlExcelCombined) {
+    btnBulkDlExcelCombined.addEventListener("click", () => {
+      handleBulkDownload("/api/files/bulk-download/combined-excel", "combined_export.xlsx");
     });
   }
 
@@ -696,7 +802,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const tbody = document.querySelector("#dashboard-files-table tbody");
     if (!files.length) {
       tbody.innerHTML = `<tr><td colspan="6" class="text-center">No JSON files found in project.</td></tr>`;
-      updateBulkDeleteUI();
+      updateBulkActionsUI();
       return;
     }
 
@@ -755,11 +861,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     tbody.querySelectorAll(".chk-select-file").forEach((chk) => {
       chk.addEventListener("change", () => {
-        updateBulkDeleteUI();
+        updateBulkActionsUI();
       });
     });
 
-    updateBulkDeleteUI();
+    updateBulkActionsUI();
   }
 
   function populateSelectOptions(files) {

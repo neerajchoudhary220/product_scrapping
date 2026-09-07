@@ -63,5 +63,9 @@ Follow on-screen instructions to log into wukusy.app and save the browser storag
 - `GET /api/auth/status`: Checks if `auth.json` exists and returns cookie count.
 - `GET /api/files`: Lists available JSON datasets in `data/` directory with item counts.
 - `GET /api/files/:filename/excel`: Generates and downloads an Excel file from a JSON dataset.
+- `POST /api/files/bulk-delete`: Deletes multiple selected JSON files simultaneously.
+- `POST /api/files/bulk-download/json`: Bundles selected JSON files into a `.zip` archive download.
+- `POST /api/files/bulk-download/excel`: Exports selected JSON datasets to `.xlsx` format bundled inside a `.zip` archive.
+- `POST /api/files/bulk-download/combined-excel`: Combines selected JSON datasets into a single Excel `.xlsx` workbook with separate sheets for each file.
 - `POST /api/tasks/run`: Triggers a background scraper task.
 - `POST /api/tasks/stop`: Stops the currently active task runner.

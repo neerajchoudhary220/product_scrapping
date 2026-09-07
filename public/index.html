@@ -244,7 +244,17 @@
             <div class="card">
               <div class="card-header flex-between">
                 <h3><i class="fa-solid fa-folder-open text-purple"></i> Project JSON Files</h3>
-                <div class="card-header-actions" style="display: flex; align-items: center; gap: 10px;">
+                <div class="card-header-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <div class="dropdown-bulk-download" id="bulk-download-wrapper" style="display: none; position: relative;">
+                    <button class="btn btn-outline-primary btn-sm dropdown-toggle" id="btn-bulk-download-menu">
+                      <i class="fa-solid fa-download"></i> Download Selected (<span id="bulk-download-count">0</span>) <i class="fa-solid fa-chevron-down" style="font-size: 10px; margin-left: 4px;"></i>
+                    </button>
+                    <div class="dropdown-menu-custom" id="bulk-download-dropdown" style="display: none;">
+                      <button class="dropdown-item-custom" id="btn-bulk-dl-json"><i class="fa-solid fa-file-zipper text-cyan"></i> Download JSON (ZIP)</button>
+                      <button class="dropdown-item-custom" id="btn-bulk-dl-excel-zip"><i class="fa-solid fa-file-excel text-emerald"></i> Download Excel (ZIP)</button>
+                      <button class="dropdown-item-custom" id="btn-bulk-dl-excel-combined"><i class="fa-solid fa-table text-purple"></i> Combined Excel (.xlsx)</button>
+                    </div>
+                  </div>
                   <button class="btn btn-outline-danger btn-sm" id="btn-bulk-delete-files" style="display: none;">
                     <i class="fa-solid fa-trash-can"></i> Delete Selected (<span id="bulk-delete-count">0</span>)
                   </button>

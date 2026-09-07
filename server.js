@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
 const XLSX = require("xlsx");
+const AdmZip = require("adm-zip");
 const { chromium } = require("playwright");
 const taskRunnerManager = require("./lib/runner");
 
@@ -270,6 +271,38 @@ app.get("/api/files", (req, res) => {
   }
 });
 
+// Helper to convert JSON data array or object into Excel rows format
+function jsonToRows(data) {
+  if (Array.isArray(data)) {
+    return data.map((item, idx) => {
+      if (typeof item !== "object" || item === null) {
+        return { Index: idx + 1, "Supplier Product ID": String(item) };
+      }
+
+      return {
+        "Supplier Product ID": item.deo_dap_product_id || item.id || idx + 1,
+        Title: item.title || "",
+        Keywords: item.keywords || "",
+        Price: item.price || "",
+        "Profit %": item.profit_percentage || "",
+        "Profit Amount": item.profit_amount || "",
+        "Final Price": item.final_price || "",
+        Stock: item.stock || "",
+        Weight: item.weight || "",
+        "Supplier Rating": item.supplier_rating || "",
+        Images: Array.isArray(item.images)
+          ? item.images.join(", ")
+          : item.images || "",
+        "Product URL": item.product_url || "",
+        Description: item.description || "",
+      };
+    });
+  } else if (typeof data === "object" && data !== null) {
+    return [data];
+  }
+  return [];
+}
+
 // Export JSON Dataset as Excel file (.xlsx)
 app.get("/api/files/:filename/excel", (req, res) => {
   try {
@@ -282,40 +315,7 @@ app.get("/api/files/:filename/excel", (req, res) => {
 
     const content = fs.readFileSync(filePath, "utf8");
     const data = JSON.parse(content);
-
-    let rows = [];
-
-    if (Array.isArray(data)) {
-      rows = data.map((item, idx) => {
-        if (typeof item !== "object" || item === null) {
-          return { Index: idx + 1, "Supplier Product ID": String(item) };
-        }
-
-        return {
-          "Supplier Product ID": item.deo_dap_product_id || item.id || idx + 1,
-          Title: item.title || "",
-          Keywords: item.keywords || "",
-          Price: item.price || "",
-          "Profit %": item.profit_percentage || "",
-          "Profit Amount": item.profit_amount || "",
-          "Final Price": item.final_price || "",
-          Stock: item.stock || "",
-          Weight: item.weight || "",
-          "Supplier Rating": item.supplier_rating || "",
-          Images: Array.isArray(item.images)
-            ? item.images.join(", ")
-            : item.images || "",
-          "Product URL": item.product_url || "",
-          Description: item.description || "",
-          // Summary: item.description_parsed?.summary || "",
-          // Features: Array.isArray(item.description_parsed?.features)
-          //   ? item.description_parsed.features.join(" | ")
-          //   : "",
-        };
-      });
-    } else if (typeof data === "object" && data !== null) {
-      rows = [data];
-    }
+    const rows = jsonToRows(data);
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -408,6 +408,156 @@ app.post("/api/files/bulk-delete", (req, res) => {
       skipped,
       errors,
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Download Multiple JSON Files as a ZIP archive
+app.post("/api/files/bulk-download/json", (req, res) => {
+  try {
+    const { filenames } = req.body;
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ error: "Filenames array is required" });
+    }
+
+    const zip = new AdmZip();
+    let addedCount = 0;
+
+    filenames.forEach((rawName) => {
+      const filename = path.basename(rawName);
+      const filePath = resolveFilePath(filename);
+      if (fs.existsSync(filePath)) {
+        zip.addLocalFile(filePath);
+        addedCount++;
+      }
+    });
+
+    if (addedCount === 0) {
+      return res.status(404).json({ error: "No valid files found to download" });
+    }
+
+    const zipBuffer = zip.toBuffer();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="selected_json_files_${Date.now()}.zip"`
+    );
+    res.send(zipBuffer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Download Multiple JSON Files converted to Excel (.xlsx) inside a ZIP archive
+app.post("/api/files/bulk-download/excel", (req, res) => {
+  try {
+    const { filenames } = req.body;
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ error: "Filenames array is required" });
+    }
+
+    const zip = new AdmZip();
+    let addedCount = 0;
+
+    filenames.forEach((rawName) => {
+      const filename = path.basename(rawName);
+      const filePath = resolveFilePath(filename);
+      if (fs.existsSync(filePath)) {
+        try {
+          const content = fs.readFileSync(filePath, "utf8");
+          const data = JSON.parse(content);
+          const rows = jsonToRows(data);
+          const worksheet = XLSX.utils.json_to_sheet(rows);
+          const workbook = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(workbook, worksheet, "Scraped Data");
+          const excelBuffer = XLSX.write(workbook, {
+            type: "buffer",
+            bookType: "xlsx",
+          });
+          const excelFilename = filename.replace(/\.json$/i, ".xlsx");
+          zip.addFile(excelFilename, excelBuffer);
+          addedCount++;
+        } catch (err) {
+          // Skip unparseable files
+        }
+      }
+    });
+
+    if (addedCount === 0) {
+      return res.status(404).json({ error: "No valid files found to export" });
+    }
+
+    const zipBuffer = zip.toBuffer();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="selected_excel_files_${Date.now()}.zip"`
+    );
+    res.send(zipBuffer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Export Combined Excel Workbook (Each JSON dataset as a separate sheet)
+app.post("/api/files/bulk-download/combined-excel", (req, res) => {
+  try {
+    const { filenames } = req.body;
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ error: "Filenames array is required" });
+    }
+
+    const workbook = XLSX.utils.book_new();
+    const usedSheetNames = new Set();
+    let addedCount = 0;
+
+    filenames.forEach((rawName, idx) => {
+      const filename = path.basename(rawName);
+      const filePath = resolveFilePath(filename);
+      if (fs.existsSync(filePath)) {
+        try {
+          const content = fs.readFileSync(filePath, "utf8");
+          const data = JSON.parse(content);
+          const rows = jsonToRows(data);
+          const worksheet = XLSX.utils.json_to_sheet(rows);
+
+          // Sheet name max 31 chars in Excel & must be unique
+          let rawSheetName = filename.replace(/\.json$/i, "").slice(0, 25);
+          if (!rawSheetName) rawSheetName = `Sheet${idx + 1}`;
+          let sheetName = rawSheetName;
+          let counter = 1;
+          while (usedSheetNames.has(sheetName.toLowerCase())) {
+            sheetName = `${rawSheetName}_${counter++}`.slice(0, 31);
+          }
+          usedSheetNames.add(sheetName.toLowerCase());
+
+          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+          addedCount++;
+        } catch (err) {
+          // Skip invalid JSON
+        }
+      }
+    });
+
+    if (addedCount === 0) {
+      return res.status(404).json({ error: "No valid files found to combine" });
+    }
+
+    const excelBuffer = XLSX.write(workbook, {
+      type: "buffer",
+      bookType: "xlsx",
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="combined_export_${Date.now()}.xlsx"`
+    );
+    res.send(excelBuffer);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
