@@ -60,6 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
   socket.on("task-started", (task) => {
     updateRunnerStatusUI(true, task);
     const names = {
+      "auto-scrape": "Auto Multi-Page 1-Click Engine",
       "scrape-ids": "Extract Product IDs Engine",
       "scrape-details": "Extract Product Details Engine",
       "update-prices": "Price Updater Engine"
@@ -71,6 +72,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   socket.on("task-enqueued", (data) => {
     const names = {
+      "auto-scrape": "Auto Multi-Page 1-Click Engine",
       "scrape-ids": "Extract Product IDs Engine",
       "scrape-details": "Extract Product Details Engine",
       "update-prices": "Price Updater Engine"
@@ -225,12 +227,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const taskNames = {
+      "auto-scrape": "Auto Multi-Page 1-Click Engine",
       "scrape-ids": "Extract Product IDs Engine",
       "scrape-details": "Extract Product Details Engine",
       "update-prices": "Price Updater Engine"
     };
 
     const taskIcons = {
+      "auto-scrape": "fa-solid fa-wand-magic-sparkles text-gold",
       "scrape-ids": "fa-solid fa-list-check text-cyan",
       "scrape-details": "fa-solid fa-boxes-packing text-emerald",
       "update-prices": "fa-solid fa-tags text-purple"
@@ -506,6 +510,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const tabMeta = {
     "tab-dashboard": { title: "Dashboard Overview", subtitle: "Real-time control & scraping manager" },
+    "tab-auto-scrape": { title: "Auto Multi-Page 1-Click Engine", subtitle: "Automated pipeline (IDs ➔ Details ➔ Price Update) across multiple pages" },
     "tab-scrape-ids": { title: "Scrape Product IDs", subtitle: "Extract product IDs from category URLs" },
     "tab-scrape-details": { title: "Scrape Product Details", subtitle: "Extract price, stock, weight, rating & description" },
     "tab-update-price": { title: "Price Calculation & Updater", subtitle: "Calculate cart total & apply profit margin" },
@@ -543,6 +548,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".launcher-card").forEach((card) => {
     card.addEventListener("click", () => {
       const launchType = card.getAttribute("data-launch");
+      if (launchType === "auto") switchTab("tab-auto-scrape");
       if (launchType === "ids") switchTab("tab-scrape-ids");
       if (launchType === "details") switchTab("tab-scrape-details");
       if (launchType === "prices") switchTab("tab-update-price");
@@ -891,6 +897,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // ==========================================================================
 
   // Preset chip handlers
+  document.querySelectorAll(".chip-auto").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      document.getElementById("auto-url").value = chip.getAttribute("data-url");
+    });
+  });
+
+  document.querySelectorAll(".chip-auto-percent").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      document.getElementById("auto-profit-margin").value = chip.getAttribute("data-val");
+    });
+  });
+
   document.querySelectorAll(".chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       document.getElementById("ids-link").value = chip.getAttribute("data-url");
@@ -902,6 +920,24 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("price-profit-margin").value = chip.getAttribute("data-val");
     });
   });
+
+  // Auto Scraper Form
+  const formAutoScrape = document.getElementById("form-auto-scrape");
+  if (formAutoScrape) {
+    formAutoScrape.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const url = document.getElementById("auto-url").value.trim();
+      const totalPages = Number(document.getElementById("auto-total-pages").value);
+      const outputFile = document.getElementById("auto-output-file").value.trim();
+      const profitPercentage = Number(document.getElementById("auto-profit-margin").value);
+      const headless = document.getElementById("auto-headless").checked;
+
+      socket.emit("start-task", {
+        taskType: "auto-scrape",
+        payload: { url, totalPages, outputFile, profitPercentage, headless }
+      });
+    });
+  }
 
   // Scrape IDs Form
   document.getElementById("form-scrape-ids").addEventListener("submit", (e) => {

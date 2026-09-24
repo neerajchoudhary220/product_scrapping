@@ -32,6 +32,10 @@
           <i class="fa-solid fa-gauge-high"></i>
           <span>Dashboard</span>
         </button>
+        <button class="nav-item" data-tab="tab-auto-scrape">
+          <i class="fa-solid fa-wand-magic-sparkles text-gold"></i>
+          <span>Auto 1-Click Engine</span>
+        </button>
         <button class="nav-item" data-tab="tab-scrape-ids">
           <i class="fa-solid fa-list-check"></i>
           <span>Scrape Product IDs</span>
@@ -217,6 +221,13 @@
                 <h3><i class="fa-solid fa-rocket text-cyan"></i> Quick Launch Modules</h3>
               </div>
               <div class="card-body launcher-grid">
+                <div class="launcher-card highlight-card" data-launch="auto" style="border: 1px solid rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.05);">
+                  <div class="launcher-icon text-gold"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                  <h4>Auto 1-Click Engine</h4>
+                  <p>IDs ➔ Details ➔ Price Update across pages in 1 click.</p>
+                  <button class="btn btn-gold btn-sm">Configure & Run</button>
+                </div>
+
                 <div class="launcher-card" data-launch="ids">
                   <div class="launcher-icon"><i class="fa-solid fa-list-check"></i></div>
                   <h4>Extract Product IDs</h4>
@@ -282,6 +293,78 @@
                   </table>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: AUTO MULTI-PAGE SCRAPER -->
+        <section class="tab-pane" id="tab-auto-scrape">
+          <div class="card max-w-700">
+            <div class="card-header">
+              <h3><i class="fa-solid fa-wand-magic-sparkles text-gold"></i> Auto Multi-Page 1-Click Engine</h3>
+            </div>
+            <div class="card-body">
+              <form id="form-auto-scrape">
+                <div class="form-group">
+                  <label for="auto-url"><i class="fa-solid fa-link text-cyan"></i> 1. Category Base URL</label>
+                  <input type="url" id="auto-url" class="form-control" required 
+                         value="https://wukusy.app/dropshiper/category/3" 
+                         placeholder="e.g. https://wukusy.app/dropshiper/category/3">
+                  <div class="preset-chips">
+                    <span>Presets:</span>
+                    <button type="button" class="chip-auto" data-url="https://wukusy.app/dropshiper/category/3">Cat 3</button>
+                    <button type="button" class="chip-auto" data-url="https://wukusy.app/dropshiper/category/1">Cat 1</button>
+                    <button type="button" class="chip-auto" data-url="https://wukusy.app/dropshiper/category/2">Cat 2</button>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="auto-total-pages"><i class="fa-solid fa-layer-group text-gold"></i> 2. Total Page</label>
+                    <input type="number" id="auto-total-pages" class="form-control" min="1" max="100" value="4" required placeholder="e.g. 4">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="auto-output-file"><i class="fa-solid fa-file-export text-emerald"></i> 3. Output File</label>
+                    <input type="text" id="auto-output-file" class="form-control" required value="kitchen-n.json" placeholder="e.g. kitchen-n.json">
+                    <span style="font-size: 11px; color: var(--text-dim); margin-top: 4px; display: block;">
+                      Format: <code>kitchen-n.json</code> (Total Page 4 produces <code>kitchen-1.json</code> to <code>kitchen-4.json</code>)
+                    </span>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="auto-profit-margin"><i class="fa-solid fa-percent text-gold"></i> 4. Profit Margin (%)</label>
+                    <input type="number" id="auto-profit-margin" class="form-control" min="0" max="500" step="0.5" value="20" required placeholder="e.g. 20">
+                    <div class="preset-chips" style="margin-top: 6px;">
+                      <span>Quick %:</span>
+                      <button type="button" class="chip-auto-percent" data-val="10">10%</button>
+                      <button type="button" class="chip-auto-percent" data-val="15">15%</button>
+                      <button type="button" class="chip-auto-percent" data-val="20">20%</button>
+                      <button type="button" class="chip-auto-percent" data-val="25">25%</button>
+                      <button type="button" class="chip-auto-percent" data-val="30">30%</button>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-eye-slash text-purple"></i> Browser Mode</label>
+                    <div class="toggle-container" style="margin-top: 6px;">
+                      <input type="checkbox" id="auto-headless" class="toggle-input" checked>
+                      <label for="auto-headless" class="toggle-label">
+                        <span class="toggle-ball"></span>
+                      </label>
+                      <span class="toggle-text" id="auto-headless-text">Headless (Background)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-gold" id="btn-start-auto">
+                    <i class="fa-solid fa-bolt-lightning"></i> Add to Queue / Start 1-Click Auto Scraper
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </section>

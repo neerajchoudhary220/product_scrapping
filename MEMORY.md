@@ -11,7 +11,8 @@ This repository is an automated web scraper and management dashboard for **wukus
 ### Key Components
 
 - **`server.js`**: Express server & Socket.IO server. Provides REST APIs (`/api/auth/status`, `/api/files`, `/api/files/:filename/excel`, etc.) and static dashboard serving from `public/`.
-- **`lib/runner.js`**: `TaskRunnerManager` class that manages background task execution (`scrape-ids`, `scrape-details`, `update-prices`), reports progress & real-time logs via Socket.IO, and handles task cancellation gracefully.
+- **`lib/runner.js`**: `TaskRunnerManager` class that manages background task execution (`scrape-ids`, `scrape-details`, `update-prices`, `auto-scrape`), reports progress & real-time logs via Socket.IO, and handles task cancellation gracefully.
+- **`auto_scraper.js`**: Automated 1-Click multi-page scraper pipeline combining ID extraction, details scraping, and price calculation/updating sequentially across pages.
 - **`product_id.js`**: Scrapes supplier product IDs and category links from wukusy.app.
 - **`product_details.js`**: Scrapes detailed product info (Title, Keywords, Cost Price, Profit %, Final Price, Stock, Weight, Supplier Rating, Product Images, Description).
 - **`update_price.js`**: Re-scrapes and updates price/stock details for existing products.
