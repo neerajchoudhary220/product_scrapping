@@ -117,8 +117,11 @@ app.post("/api/session/launch", async (req, res) => {
       } catch (e) {}
     }
 
-    activeSessionBrowser = await chromium.launch({ headless: Boolean(headless) });
-    activeSessionContext = await activeSessionBrowser.newContext(contextOptions);
+    activeSessionBrowser = await chromium.launch({
+      headless: Boolean(headless),
+    });
+    activeSessionContext =
+      await activeSessionBrowser.newContext(contextOptions);
     activeSessionPage = await activeSessionContext.newPage();
     activeSessionUrl = url;
 
@@ -129,23 +132,29 @@ app.post("/api/session/launch", async (req, res) => {
       activeSessionContext = null;
       activeSessionPage = null;
       activeSessionUrl = null;
-      
+
       io.emit("session-status-changed", {
         isSessionActive: false,
         message: "Browser window closed by user.",
       });
-      taskRunnerManager.broadcastLog("ℹ️ Interactive browser closed. Session saved to auth.json.", "info");
+      taskRunnerManager.broadcastLog(
+        "ℹ️ Interactive browser closed. Session saved to auth.json.",
+        "info",
+      );
     });
 
     console.log(`🌐 Navigating interactive browser to ${url}...`);
-    await activeSessionPage.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await activeSessionPage.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
 
     // Save initial storage state
     await activeSessionContext.storageState({ path: AUTH_FILE });
 
     taskRunnerManager.broadcastLog(
       `🚀 Interactive session opened at ${url} (Headless: ${headless}). Log in / handle popups directly in browser!`,
-      "info"
+      "info",
     );
 
     io.emit("session-status-changed", {
@@ -173,7 +182,9 @@ app.post("/api/session/save", async (req, res) => {
     }
 
     if (!fs.existsSync(AUTH_FILE)) {
-      return res.status(400).json({ error: "No session state or auth.json file found to save." });
+      return res
+        .status(400)
+        .json({ error: "No session state or auth.json file found to save." });
     }
 
     const content = fs.readFileSync(AUTH_FILE, "utf8");
@@ -184,7 +195,7 @@ app.post("/api/session/save", async (req, res) => {
 
     taskRunnerManager.broadcastLog(
       `💾 Session state successfully saved to auth.json! (${cookiesCount} cookies, ${originsCount} origins cached)`,
-      "success"
+      "success",
     );
 
     io.emit("session-saved", {
@@ -207,7 +218,10 @@ app.post("/api/session/save", async (req, res) => {
 app.post("/api/session/close", async (req, res) => {
   try {
     await closeActiveSession();
-    taskRunnerManager.broadcastLog("⏹️ Interactive session closed. Saved cookies to auth.json.", "info");
+    taskRunnerManager.broadcastLog(
+      "⏹️ Interactive session closed. Saved cookies to auth.json.",
+      "info",
+    );
 
     io.emit("session-status-changed", {
       isSessionActive: false,
@@ -295,6 +309,10 @@ function jsonToRows(data) {
           : item.images || "",
         "Product URL": item.product_url || "",
         Description: item.description || "",
+        "Shipping Charge": item.shippingCharge || "",
+        "COD Charge": item.codCharge || "",
+        "Shipping Tax": item.shippingTax || "",
+        Tax: item.tax || "",
       };
     });
   } else if (typeof data === "object" && data !== null) {
@@ -434,14 +452,16 @@ app.post("/api/files/bulk-download/json", (req, res) => {
     });
 
     if (addedCount === 0) {
-      return res.status(404).json({ error: "No valid files found to download" });
+      return res
+        .status(404)
+        .json({ error: "No valid files found to download" });
     }
 
     const zipBuffer = zip.toBuffer();
     res.setHeader("Content-Type", "application/zip");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="selected_json_files_${Date.now()}.zip"`
+      `attachment; filename="selected_json_files_${Date.now()}.zip"`,
     );
     res.send(zipBuffer);
   } catch (error) {
@@ -492,7 +512,7 @@ app.post("/api/files/bulk-download/excel", (req, res) => {
     res.setHeader("Content-Type", "application/zip");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="selected_excel_files_${Date.now()}.zip"`
+      `attachment; filename="selected_excel_files_${Date.now()}.zip"`,
     );
     res.send(zipBuffer);
   } catch (error) {
@@ -551,11 +571,11 @@ app.post("/api/files/bulk-download/combined-excel", (req, res) => {
 
     res.setHeader(
       "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="combined_export_${Date.now()}.xlsx"`
+      `attachment; filename="combined_export_${Date.now()}.xlsx"`,
     );
     res.send(excelBuffer);
   } catch (error) {
