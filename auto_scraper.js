@@ -8,6 +8,32 @@ const DATA_DIR = path.join(__dirname, "data");
 const DEFAULT_AUTH = path.join(__dirname, "auth.json");
 
 /**
+ * Extracts start page number from target URL query param (e.g. ?page=6), defaulting to 1.
+ */
+function getStartPageFromUrl(baseUrl) {
+  if (!baseUrl) return 1;
+  try {
+    const urlObj = new URL(baseUrl);
+    const pageParam = urlObj.searchParams.get("page");
+    if (pageParam) {
+      const parsed = parseInt(pageParam, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    const match = baseUrl.match(/[?&]page=(\d+)/i);
+    if (match && match[1]) {
+      const parsed = parseInt(match[1], 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+  return 1;
+}
+
+/**
  * Builds the page URL by replacing or setting the page query parameter.
  */
 function buildPageUrl(baseUrl, pageNum) {
@@ -72,24 +98,29 @@ async function autoScrapeMultiPage(
     authFile = DEFAULT_AUTH,
   } = options;
 
+  const startPage = getStartPageFromUrl(url);
   const totalPagesCount = Math.max(1, parseInt(totalPages, 10) || 1);
+  const endPage = startPage + totalPagesCount - 1;
+
   const log = (msg, type = "info") => {
     if (typeof onLog === "function") onLog(msg, type);
   };
 
   log(`🚀 Starting Auto Multi-Page Scraping Process...`, "info");
   log(`🔗 Base Target URL: ${url}`, "info");
-  log(`📄 Total Pages: ${totalPagesCount}`, "info");
+  log(`📄 Start Page: ${startPage}, Total Pages to Scrape: ${totalPagesCount} (Range: Page ${startPage} to ${endPage})`, "info");
   log(`📁 Output File Pattern: ${outputFile}`, "info");
   log(`📈 Profit Margin: ${profitPercentage}%`, "info");
   log(`🕶️ Headless: ${headless ? "Yes" : "No"}`, "info");
 
   const results = [];
 
-  for (let pageNum = 1; pageNum <= totalPagesCount; pageNum++) {
+  let pageIndex = 0;
+  for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+    pageIndex++;
     if (shouldStop()) {
       log(
-        `🛑 Auto Scraping process cancelled by user at page ${pageNum}/${totalPagesCount}`,
+        `🛑 Auto Scraping process cancelled by user at page ${pageNum} (${pageIndex}/${totalPagesCount})`,
         "warn"
       );
       break;
@@ -101,13 +132,13 @@ async function autoScrapeMultiPage(
 
     log(`==================================================`, "info");
     log(
-      `🔄 [PAGE ${pageNum}/${totalPagesCount}] Starting full pipeline...`,
+      `🔄 [PAGE ${pageNum} (${pageIndex}/${totalPagesCount})] Starting full pipeline...`,
       "info"
     );
     log(`🌐 Page URL: ${pageUrl}`, "info");
     log(`💾 Target Page Output File: ${pageOutputFile}`, "info");
 
-    const pageProgressBase = ((pageNum - 1) / totalPagesCount) * 100;
+    const pageProgressBase = ((pageIndex - 1) / totalPagesCount) * 100;
     const pageProgressRange = (1 / totalPagesCount) * 100;
 
     const reportPageProgress = (subPercent, statusText, item = null) => {
@@ -118,7 +149,7 @@ async function autoScrapeMultiPage(
       onProgress(
         overallPercent,
         100,
-        `[Page ${pageNum}/${totalPagesCount}] ${statusText}`,
+        `[Page ${pageNum} (${pageIndex}/${totalPagesCount})] ${statusText}`,
         item
       );
     };
@@ -240,4 +271,9 @@ async function autoScrapeMultiPage(
   };
 }
 
-module.exports = { autoScrapeMultiPage, buildPageUrl, buildPageOutputFileName };
+module.exports = {
+  autoScrapeMultiPage,
+  buildPageUrl,
+  buildPageOutputFileName,
+  getStartPageFromUrl,
+};
