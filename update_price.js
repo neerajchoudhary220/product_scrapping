@@ -71,9 +71,8 @@ async function getPrice(page, locator) {
 async function clearCart(page, log = () => {}) {
   await page.goto(DEFAULT_CART_URL, {
     waitUntil: "domcontentloaded",
-    timeout: 60000,
+    timeout: 30000,
   });
-  await page.waitForTimeout(1000);
 
   while (true) {
     const removeButtons = page.locator('a[onclick*="removeCartId"]');
@@ -87,8 +86,7 @@ async function clearCart(page, log = () => {}) {
     log(`🛒 Cart has ${count} residual item(s). Clearing item...`);
     const previousCount = count;
 
-    await removeButtons.first().scrollIntoViewIfNeeded();
-    await removeButtons.first().click();
+    await removeButtons.first().click().catch(() => {});
 
     try {
       await page.waitForFunction(
@@ -96,15 +94,12 @@ async function clearCart(page, log = () => {}) {
           document.querySelectorAll('a[onclick*="removeCartId"]').length <
           oldCount,
         previousCount,
-        { timeout: 15000 },
+        { timeout: 10000 },
       );
     } catch (error) {
       log("Reloading cart after removal action...", "warn");
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
     }
-
-    await page.waitForTimeout(1000);
-    await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForTimeout(1000);
   }
 }
 
@@ -118,8 +113,7 @@ async function removeCurrentProduct(page, productId, log = () => {}) {
     return false;
   }
 
-  await removeButtons.first().scrollIntoViewIfNeeded();
-  await removeButtons.first().click();
+  await removeButtons.first().click().catch(() => {});
 
   try {
     await page.waitForFunction(
@@ -127,19 +121,16 @@ async function removeCurrentProduct(page, productId, log = () => {}) {
         document.querySelectorAll('a[onclick*="removeCartId"]').length <
         oldCount,
       countBefore,
-      { timeout: 15000 },
+      { timeout: 10000 },
     );
     log(`✓ Product ${productId} removed from cart.`);
     return true;
   } catch (error) {
-    log("Cart remove transition timeout, reloading to verify...", "warn");
+    log("Cart remove transition timeout, verifying with reload...", "warn");
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+    const countAfter = await page.locator('a[onclick*="removeCartId"]').count();
+    return countAfter < countBefore;
   }
-
-  await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForTimeout(1000);
-
-  const countAfter = await page.locator('a[onclick*="removeCartId"]').count();
-  return countAfter < countBefore;
 }
 
 /**
@@ -206,6 +197,16 @@ async function updateProductPrices(
     }
 
     const context = await browser.newContext(contextOptions);
+
+    // Abort heavy media/image/font assets for faster cart operations
+    await context.route("**/*", (route) => {
+      const resourceType = route.request().resourceType();
+      if (["image", "media", "font"].includes(resourceType)) {
+        return route.abort();
+      }
+      return route.continue();
+    });
+
     const page = await context.newPage();
 
     let completedCount = 0;
@@ -286,48 +287,40 @@ async function updateProductPrices(
         log(`Step 4: Adding product ${productId} to cart...`);
         await addToCartButton.first().scrollIntoViewIfNeeded();
         await addToCartButton.first().click();
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(600);
 
         log(`Step 5: Navigating to cart to calculate total...`);
         await page.goto(DEFAULT_CART_URL, {
           waitUntil: "domcontentloaded",
-          timeout: 60000,
+          timeout: 30000,
         });
-        await page.waitForTimeout(1000);
 
         log(`Step 6: Parsing cart price...`);
-        const totalPrice = await getPrice(
-          page,
-          '//tr[th[normalize-space(.)="Total (INR) :"]]//span[@id="totalUpdate"]',
-        );
-        const subTotalPrice = await getPrice(
-          page,
-          '//tr[td[normalize-space(.)="Sub Total (Item Cost) :"]]//td[@id="cart-subtotal"]',
-        );
-        const shippingCharge = await getPrice(
-          page,
-          '//tr[td[contains(normalize-space(.), "Shipping Charge")]]//span[@id="totalShipping"]',
-        );
-        const codCharge = await getPrice(
-          page,
-          '//tr[@id="cod-hide"]//span[@id="codCharge"]',
-        );
-        const tax = await getPrice(
-          page,
-          '//tr[td[contains(normalize-space(.), "Tax")]]//span[@id="totalTax"]',
-        );
+        await page.waitForSelector("#totalUpdate, #cart-subtotal", { timeout: 15000 }).catch(() => {});
 
-        const shippingTax = await getPrice(
-          page,
-          '//tr[td[contains(normalize-space(.), "Shipping Tax")]]//span[@id="shipTax"]',
-        );
+        const cartPrices = await page.evaluate(() => {
+          const parse = (text) => {
+            if (!text) return null;
+            const cleaned = String(text).replace(/[₹,\s]/g, "").trim();
+            const num = parseFloat(cleaned);
+            return Number.isNaN(num) ? null : num;
+          };
+          return {
+            totalPrice: parse(document.querySelector("#totalUpdate")?.innerText),
+            subTotalPrice: parse(document.querySelector("#cart-subtotal")?.innerText),
+            shippingCharge: parse(document.querySelector("#totalShipping")?.innerText),
+            codCharge: parse(document.querySelector("#codCharge")?.innerText),
+            tax: parse(document.querySelector("#totalTax")?.innerText),
+            shippingTax: parse(document.querySelector("#shipTax")?.innerText),
+          };
+        });
 
-        console.log("subTotalPrice", subTotalPrice);
-        console.log("totalPrice", totalPrice);
-        console.log("shipppingCharge", shippingCharge);
-        console.log("codCharge", codCharge);
-        console.log("shippingTax", shippingTax);
-        console.log("tax", tax);
+        const totalPrice = cartPrices.totalPrice;
+        const subTotalPrice = cartPrices.subTotalPrice;
+        const shippingCharge = cartPrices.shippingCharge;
+        const codCharge = cartPrices.codCharge;
+        const tax = cartPrices.tax;
+        const shippingTax = cartPrices.shippingTax;
 
         if (totalPrice === null) {
           throw new Error(
@@ -387,7 +380,7 @@ async function updateProductPrices(
 
       completedCount++;
       onProgress(completedCount, total, `Completed ID ${productId}`, productId);
-      if (!page.isClosed()) await page.waitForTimeout(1000);
+      if (!page.isClosed()) await page.waitForTimeout(200);
     }
 
     await browser.close();

@@ -931,10 +931,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const outputFile = document.getElementById("auto-output-file").value.trim();
       const profitPercentage = Number(document.getElementById("auto-profit-margin").value);
       const headless = document.getElementById("auto-headless").checked;
+      const concurrency = Number(document.getElementById("auto-concurrency")?.value) || 4;
 
       socket.emit("start-task", {
         taskType: "auto-scrape",
-        payload: { url, totalPages, outputFile, profitPercentage, headless }
+        payload: { url, totalPages, outputFile, profitPercentage, headless, concurrency }
       });
     });
   }
@@ -958,10 +959,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputFile = document.getElementById("details-input-file").value;
     const outputFile = document.getElementById("details-output-file").value.trim();
     const headless = document.getElementById("details-headless").checked;
+    const concurrency = Number(document.getElementById("details-concurrency")?.value) || 4;
 
     socket.emit("start-task", {
       taskType: "scrape-details",
-      payload: { inputFile, outputFile, headless }
+      payload: { inputFile, outputFile, headless, concurrency }
     });
   });
 

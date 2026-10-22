@@ -15,33 +15,6 @@ function resolveDataPath(filename, defaultName) {
   return path.join(DATA_DIR, target);
 }
 
-async function getText(locator) {
-  try {
-    const count = await locator.count();
-    if (count === 0) return null;
-    return (await locator.first().innerText()).trim();
-  } catch (error) {
-    return null;
-  }
-}
-
-async function getSpecValue(page, labelName) {
-  try {
-    const specCards = page.locator(".spec-card");
-    const count = await specCards.count();
-    for (let i = 0; i < count; i++) {
-      const card = specCards.nth(i);
-      const label = await getText(card.locator(".spec-label"));
-      if (label && label.toLowerCase() === labelName.toLowerCase()) {
-        return await getText(card.locator(".spec-value"));
-      }
-    }
-    return null;
-  } catch (error) {
-    return null;
-  }
-}
-
 /**
  * Generate valuable, comma-separated search keywords from Title and Description
  */
@@ -297,7 +270,233 @@ function generateKeywords(
 }
 
 /**
+ * Extracts all product details in a single in-browser evaluation pass for speed
+ */
+async function extractProductFromPage(page, productId) {
+  const productUrl = `${BASE_URL}/merchant/product-details/${productId}`;
+
+  await page.goto(productUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: 30000,
+  });
+
+  // Short wait for essential product content to settle
+  await page
+    .waitForSelector(
+      ".price-amount-blue, .product-title, h1, .product-detail-name, .title, .detail-title",
+      { timeout: 10000 },
+    )
+    .catch(() => {});
+
+  const extracted = await page.evaluate(() => {
+    // 1. Title
+    const titleEl = document.querySelector(
+      "h1, h2, .product-title, .product-name, .product-detail-name, .title, .detail-title",
+    );
+    const title = titleEl ? titleEl.innerText.trim() : null;
+
+    // 2. Price
+    const priceEl = document.querySelector(".price-amount-blue");
+    const price = priceEl ? priceEl.innerText.trim() : null;
+
+    // 3. Specs
+    let stock = null;
+    let weight = null;
+    let supplierRating = null;
+
+    const specCards = document.querySelectorAll(".spec-card");
+    specCards.forEach((card) => {
+      const lbl = card.querySelector(".spec-label");
+      const val = card.querySelector(".spec-value");
+      if (lbl && val) {
+        const labelText = lbl.innerText.trim().toLowerCase();
+        const valText = val.innerText.trim();
+        if (labelText === "inventory") stock = valText;
+        else if (labelText === "weight") weight = valText;
+        else if (labelText === "supplier rating") supplierRating = valText;
+      }
+    });
+
+    // 4. Images
+    const images = [];
+    const thumbItems = document.querySelectorAll(
+      ".thumbnails-vertical .thumbnail-item",
+    );
+    thumbItems.forEach((item) => {
+      const onclick = item.getAttribute("onclick");
+      if (onclick) {
+        const match = onclick.match(/changeMainImage\('([^']+)'/);
+        if (match && match[1]) images.push(match[1]);
+      }
+    });
+
+    // 5. Description
+    let descriptionData = {
+      html: null,
+      raw_text: null,
+      parsed: {
+        summary: null,
+        features: [],
+        specifications: {},
+        package_includes: null,
+        sections: [],
+      },
+    };
+
+    const container = document.querySelector("#description .mb-4");
+    if (container) {
+      const htmlContent = container.innerHTML ? container.innerHTML.trim() : null;
+      const rawText = container.innerText ? container.innerText.trim() : null;
+      const features = [];
+      const specifications = {};
+      const sections = [];
+      let summary = null;
+      let packageIncludes = null;
+
+      // Extract <li> elements as features
+      const liElements = container.querySelectorAll("li");
+      liElements.forEach((li) => {
+        const text = li.innerText ? li.innerText.trim() : "";
+        if (text && !features.includes(text)) features.push(text);
+      });
+
+      // Process text lines
+      const lines = rawText
+        ? rawText
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean)
+        : [];
+
+      let currentSection = null;
+
+      lines.forEach((line) => {
+        // Key-Value specifications
+        if (
+          line.includes(":") &&
+          !line.toLowerCase().startsWith("http") &&
+          line.indexOf(":") < 40
+        ) {
+          const parts = line.split(":");
+          const key = parts[0].trim();
+          const val = parts.slice(1).join(":").trim();
+          if (key && val) {
+            const lowerKey = key.toLowerCase();
+            if (
+              lowerKey.includes("package") ||
+              lowerKey.includes("box include") ||
+              lowerKey.includes("includes") ||
+              lowerKey.includes("contain")
+            ) {
+              packageIncludes = val;
+            } else {
+              specifications[key] = val;
+            }
+            return;
+          }
+        }
+
+        // Bullet points starting with •, -, *
+        if (/^[•\-\*]\s*/.test(line)) {
+          const featureText = line.replace(/^[•\-\*]\s*/, "").trim();
+          if (featureText && !features.includes(featureText)) {
+            features.push(featureText);
+          }
+          return;
+        }
+
+        // First long line as summary
+        if (!summary && line.length > 15 && !line.includes(":")) {
+          summary = line;
+        }
+
+        // Section headers ending with : or keyword headers
+        if (
+          line.endsWith(":") ||
+          /^(description|features|specifications|how to use|note|highlights|dimensions|material)/i.test(
+            line,
+          )
+        ) {
+          if (currentSection && currentSection.content.length > 0) {
+            sections.push(currentSection);
+          }
+          currentSection = {
+            title: line.replace(/:$/, "").trim(),
+            content: [],
+          };
+        } else if (currentSection) {
+          currentSection.content.push(line);
+        }
+      });
+
+      if (currentSection && currentSection.content.length > 0) {
+        sections.push(currentSection);
+      }
+
+      descriptionData = {
+        html: htmlContent,
+        raw_text: rawText,
+        parsed: {
+          summary: summary || (lines.length > 0 ? lines[0] : null),
+          features,
+          specifications,
+          package_includes: packageIncludes,
+          sections,
+        },
+      };
+    }
+
+    return {
+      title,
+      price,
+      stock,
+      weight,
+      supplierRating,
+      images,
+      descriptionData,
+    };
+  });
+
+  const keywords = generateKeywords(
+    extracted.title,
+    extracted.descriptionData.raw_text,
+    extracted.descriptionData.parsed,
+  );
+
+  return {
+    deo_dap_product_id: String(productId),
+    product_url: productUrl,
+    title: extracted.title || null,
+    keywords: keywords || null,
+    price: extracted.price || null,
+    stock: extracted.stock || null,
+    weight: extracted.weight || null,
+    supplier_rating: extracted.supplierRating || null,
+    images: extracted.images || [],
+    description: extracted.descriptionData.raw_text || null,
+    description_parsed: {
+      summary: extracted.descriptionData.parsed.summary || null,
+      features: Array.isArray(extracted.descriptionData.parsed.features)
+        ? extracted.descriptionData.parsed.features
+        : [],
+      specifications:
+        extracted.descriptionData.parsed.specifications &&
+        typeof extracted.descriptionData.parsed.specifications === "object"
+          ? extracted.descriptionData.parsed.specifications
+          : {},
+      package_includes:
+        extracted.descriptionData.parsed.package_includes || null,
+      sections: Array.isArray(extracted.descriptionData.parsed.sections)
+        ? extracted.descriptionData.parsed.sections
+        : [],
+    },
+    scraped_at: new Date().toISOString(),
+  };
+}
+
+/**
  * Scrape Product Details for each product ID in input JSON
+ * Fully optimized with parallel workers, resource aborting, and single-pass DOM evaluation.
  */
 async function scrapeProductDetails(
   options = {},
@@ -310,6 +509,7 @@ async function scrapeProductDetails(
     outputFile = "products-data_1.json",
     headless = true,
     authFile = DEFAULT_AUTH,
+    concurrency = 4,
   } = options;
 
   const targetInputFile = resolveDataPath(inputFile, "product_1.json");
@@ -318,13 +518,16 @@ async function scrapeProductDetails(
     ? authFile
     : path.join(__dirname, authFile);
 
+  const numConcurrency = Math.max(1, Math.min(8, parseInt(concurrency, 10) || 4));
+
   const log = (msg, type = "info") => {
     if (typeof onLog === "function") onLog(msg, type);
   };
 
-  log(`🚀 Starting Product Details Scraping...`);
+  log(`🚀 Starting Turbo Product Details Scraping...`);
   log(`📂 Input IDs File: ${targetInputFile}`);
   log(`💾 Output Data File: ${targetOutputFile}`);
+  log(`⚡ Concurrency Workers: ${numConcurrency}`);
   log(`🕶️ Headless: ${headless ? "Yes" : "No"}`);
 
   if (!fs.existsSync(targetInputFile)) {
@@ -352,6 +555,24 @@ async function scrapeProductDetails(
     }
   }
 
+  // Ensure output directory exists
+  const outputDir = path.dirname(targetOutputFile);
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const flushToFile = () => {
+    try {
+      fs.writeFileSync(
+        targetOutputFile,
+        JSON.stringify(products, null, 2),
+        "utf8",
+      );
+    } catch (err) {
+      log(`⚠️ Error writing output file: ${err.message}`, "warn");
+    }
+  };
+
   let browser;
   try {
     browser = await chromium.launch({ headless });
@@ -361,295 +582,143 @@ async function scrapeProductDetails(
     }
 
     const context = await browser.newContext(contextOptions);
-    const page = await context.newPage();
+
+    // Abort heavy media/font/image assets to drastically speed up network transfers
+    await context.route("**/*", (route) => {
+      const resourceType = route.request().resourceType();
+      if (["image", "media", "font"].includes(resourceType)) {
+        return route.abort();
+      }
+      return route.continue();
+    });
 
     const total = productIds.length;
     let completedCount = 0;
+    let currentIndex = 0;
 
-    for (let index = 0; index < total; index++) {
-      if (shouldStop()) {
-        log(`🛑 Task stopped by user at item ${index + 1}/${total}`, "warn");
-        break;
-      }
+    // Filter already scraped
+    const alreadyScrapedMap = new Map();
+    products.forEach((p) => {
+      const id = String(p.deo_dap_product_id || p.id);
+      alreadyScrapedMap.set(id, true);
+    });
 
-      const productId = String(productIds[index]);
-      const currentItem = index + 1;
-
-      const alreadyScraped = products.some(
-        (p) => String(p.deo_dap_product_id || p.id) === productId,
-      );
-      if (alreadyScraped) {
-        log(
-          `⏩ Skipping ID ${productId} (${currentItem}/${total}) - Already scraped`,
-        );
+    // Check pre-completed items
+    productIds.forEach((id) => {
+      if (alreadyScrapedMap.has(String(id))) {
         completedCount++;
-        onProgress(
-          completedCount,
-          total,
-          `Skipped ${productId} (Already scraped)`,
-          productId,
-        );
-        continue;
       }
+    });
 
-      const productUrl = `${BASE_URL}/merchant/product-details/${productId}`;
-      log(
-        `🔎 [${currentItem}/${total}] Scraping Product ID: ${productId} (${productUrl})`,
-      );
-      onProgress(
-        completedCount,
-        total,
-        `Scraping ID ${productId}...`,
-        productId,
-      );
-
-      try {
-        await page.goto(productUrl, {
-          waitUntil: "domcontentloaded",
-          timeout: 60000,
-        });
-        await page.waitForSelector(".thumbnails-vertical .thumbnail-item", {
-          timeout: 30000,
-        });
-
-        const title = await getText(
-          page
-            .locator(
-              "h1, h2, .product-title, .product-name, .product-detail-name, .title, .detail-title",
-            )
-            .first(),
-        );
-        const price = await getText(page.locator(".price-amount-blue"));
-        const stock = await getSpecValue(page, "Inventory");
-        const weight = await getSpecValue(page, "Weight");
-        const supplierRating = await getSpecValue(page, "Supplier Rating");
-
-        const images = await page
-          .locator(".thumbnails-vertical .thumbnail-item")
-          .evaluateAll((items) => {
-            return items
-              .map((item) => {
-                const onclick = item.getAttribute("onclick");
-                if (!onclick) return null;
-                const match = onclick.match(/changeMainImage\('([^']+)'/);
-                return match ? match[1] : null;
-              })
-              .filter(Boolean);
-          });
-
-        const descriptionTab = page.locator("#description-tab");
-        await descriptionTab.click().catch(() => {});
-        await page
-          .waitForSelector("#description.show", { timeout: 10000 })
-          .catch(() => {});
-
-        let descriptionData = {
-          html: null,
-          raw_text: null,
-          parsed: {
-            summary: null,
-            features: [],
-            specifications: {},
-            package_includes: null,
-            sections: [],
-          },
-        };
-
-        const descriptionLocator = page.locator("#description .mb-4");
-        if (await descriptionLocator.count()) {
-          descriptionData = await descriptionLocator
-            .first()
-            .evaluate((container) => {
-              if (!container) {
-                return {
-                  html: null,
-                  raw_text: null,
-                  parsed: {
-                    summary: null,
-                    features: [],
-                    specifications: {},
-                    package_includes: null,
-                    sections: [],
-                  },
-                };
-              }
-
-              const htmlContent = container.innerHTML
-                ? container.innerHTML.trim()
-                : null;
-              const rawText = container.innerText
-                ? container.innerText.trim()
-                : null;
-              const features = [];
-              const specifications = {};
-              const sections = [];
-              let summary = null;
-              let packageIncludes = null;
-
-              // Extract <li> elements as features
-              const liElements = container.querySelectorAll("li");
-              liElements.forEach((li) => {
-                const text = li.innerText ? li.innerText.trim() : "";
-                if (text && !features.includes(text)) features.push(text);
-              });
-
-              // Process text lines
-              const lines = rawText
-                ? rawText
-                    .split("\n")
-                    .map((l) => l.trim())
-                    .filter(Boolean)
-                : [];
-
-              let currentSection = null;
-
-              lines.forEach((line) => {
-                // Key-Value specifications
-                if (
-                  line.includes(":") &&
-                  !line.toLowerCase().startsWith("http") &&
-                  line.indexOf(":") < 40
-                ) {
-                  const parts = line.split(":");
-                  const key = parts[0].trim();
-                  const val = parts.slice(1).join(":").trim();
-                  if (key && val) {
-                    const lowerKey = key.toLowerCase();
-                    if (
-                      lowerKey.includes("package") ||
-                      lowerKey.includes("box include") ||
-                      lowerKey.includes("includes") ||
-                      lowerKey.includes("contain")
-                    ) {
-                      packageIncludes = val;
-                    } else {
-                      specifications[key] = val;
-                    }
-                    return;
-                  }
-                }
-
-                // Bullet points starting with •, -, *
-                if (/^[•\-\*]\s*/.test(line)) {
-                  const featureText = line.replace(/^[•\-\*]\s*/, "").trim();
-                  if (featureText && !features.includes(featureText)) {
-                    features.push(featureText);
-                  }
-                  return;
-                }
-
-                // First long line as summary
-                if (!summary && line.length > 15 && !line.includes(":")) {
-                  summary = line;
-                }
-
-                // Section headers ending with : or keyword headers
-                if (
-                  line.endsWith(":") ||
-                  /^(description|features|specifications|how to use|note|highlights|dimensions|material)/i.test(
-                    line,
-                  )
-                ) {
-                  if (currentSection && currentSection.content.length > 0) {
-                    sections.push(currentSection);
-                  }
-                  currentSection = {
-                    title: line.replace(/:$/, "").trim(),
-                    content: [],
-                  };
-                } else if (currentSection) {
-                  currentSection.content.push(line);
-                }
-              });
-
-              if (currentSection && currentSection.content.length > 0) {
-                sections.push(currentSection);
-              }
-
-              return {
-                html: htmlContent,
-                raw_text: rawText,
-                parsed: {
-                  summary: summary || (lines.length > 0 ? lines[0] : null),
-                  features: features,
-                  specifications: specifications,
-                  package_includes: packageIncludes,
-                  sections: sections,
-                },
-              };
-            });
-        }
-
-        const keywords = generateKeywords(
-          title,
-          descriptionData.raw_text,
-          descriptionData.parsed,
-        );
-
-        const productData = {
-          deo_dap_product_id: String(productId),
-          product_url: productUrl,
-          title: title || null,
-          keywords: keywords || null,
-          price: price || null,
-          stock: stock || null,
-          weight: weight || null,
-          supplier_rating: supplierRating || null,
-          images: images || [],
-          description: descriptionData.raw_text || null,
-          description_parsed: {
-            summary: descriptionData.parsed.summary || null,
-            features: Array.isArray(descriptionData.parsed.features)
-              ? descriptionData.parsed.features
-              : [],
-            specifications:
-              descriptionData.parsed.specifications &&
-              typeof descriptionData.parsed.specifications === "object"
-                ? descriptionData.parsed.specifications
-                : {},
-            package_includes: descriptionData.parsed.package_includes || null,
-            sections: Array.isArray(descriptionData.parsed.sections)
-              ? descriptionData.parsed.sections
-              : [],
-          },
-          scraped_at: new Date().toISOString(),
-        };
-
-        products.push(productData);
-
-        // Ensure directory exists
-        const outputDir = path.dirname(targetOutputFile);
-        if (!fs.existsSync(outputDir)) {
-          fs.mkdirSync(outputDir, { recursive: true });
-        }
-
-        fs.writeFileSync(
-          targetOutputFile,
-          JSON.stringify(products, null, 2),
-          "utf8",
-        );
-
-        log(
-          `✅ [${currentItem}/${total}] Product ${productId} saved! Price: ${price || "N/A"}, Stock: ${stock || "N/A"}, Images: ${images.length}`,
-          "success",
-        );
-      } catch (error) {
-        log(
-          `❌ [${currentItem}/${total}] Error scraping Product ID ${productId}: ${error.message}`,
-          "error",
-        );
-      }
-
-      completedCount++;
-      onProgress(completedCount, total, `Processed ID ${productId}`, productId);
-      await page.waitForTimeout(1000);
+    if (completedCount > 0) {
+      log(`⏩ Pre-skipped ${completedCount} already scraped product(s).`);
+      onProgress(completedCount, total, `Resuming scraping...`);
     }
 
+    // Parallel worker pool
+    const workerPromises = [];
+    for (let w = 0; w < numConcurrency; w++) {
+      const workerId = w + 1;
+      const workerTask = (async () => {
+        const page = await context.newPage();
+        try {
+          while (true) {
+            if (shouldStop()) break;
+
+            let indexToProcess;
+            // Get next index atomically
+            if (currentIndex < total) {
+              indexToProcess = currentIndex++;
+            } else {
+              break;
+            }
+
+            const productId = String(productIds[indexToProcess]);
+            const currentItem = indexToProcess + 1;
+
+            if (alreadyScrapedMap.has(productId)) {
+              continue;
+            }
+
+            log(
+              `🔎 [${currentItem}/${total}] [W${workerId}] Scraping Product ID: ${productId}`,
+            );
+            onProgress(
+              completedCount,
+              total,
+              `Scraping ID ${productId}...`,
+              productId,
+            );
+
+            let success = false;
+            let attempts = 0;
+            const maxAttempts = 2;
+
+            while (!success && attempts < maxAttempts && !shouldStop()) {
+              attempts++;
+              try {
+                const productData = await extractProductFromPage(
+                  page,
+                  productId,
+                );
+                products.push(productData);
+                alreadyScrapedMap.set(productId, true);
+                flushToFile();
+
+                log(
+                  `✅ [${currentItem}/${total}] Product ${productId} saved! Price: ${productData.price || "N/A"}, Stock: ${productData.stock || "N/A"}, Images: ${productData.images.length}`,
+                  "success",
+                );
+                success = true;
+              } catch (itemErr) {
+                if (attempts >= maxAttempts) {
+                  log(
+                    `❌ [${currentItem}/${total}] Failed ID ${productId} after ${maxAttempts} attempts: ${itemErr.message}`,
+                    "error",
+                  );
+                } else {
+                  log(
+                    `⚠️ [${currentItem}/${total}] Retrying ID ${productId} (${attempts}/${maxAttempts})...`,
+                    "warn",
+                  );
+                  await page.waitForTimeout(500);
+                }
+              }
+            }
+
+            completedCount++;
+            onProgress(
+              completedCount,
+              total,
+              `Processed ID ${productId}`,
+              productId,
+            );
+          }
+        } finally {
+          await page.close().catch(() => {});
+        }
+      })();
+
+      workerPromises.push(workerTask);
+    }
+
+    await Promise.all(workerPromises);
     await browser.close();
-    log(
-      `🎉 Finished Product Details Scraping. Total items in ${targetOutputFile}: ${products.length}`,
-      "success",
-    );
+
+    flushToFile();
+
+    if (shouldStop()) {
+      log(
+        `🛑 Scraping process stopped by user. Progress saved: ${products.length} products.`,
+        "warn",
+      );
+    } else {
+      log(
+        `🎉 Finished Product Details Scraping. Total items in ${targetOutputFile}: ${products.length}`,
+        "success",
+      );
+    }
+
     return { success: true, count: products.length, file: targetOutputFile };
   } catch (error) {
     if (browser) await browser.close().catch(() => {});
@@ -661,7 +730,8 @@ async function scrapeProductDetails(
 if (require.main === module) {
   const inputFile = process.argv[2] || "./product_1.json";
   const outputFile = process.argv[3] || "./products-data_1.json";
-  scrapeProductDetails({ inputFile, outputFile, headless: true })
+  const concurrency = process.argv[4] || 4;
+  scrapeProductDetails({ inputFile, outputFile, concurrency, headless: true })
     .then((res) => console.log("CLI Product Details Scraping Finished:", res))
     .catch((err) =>
       console.error("CLI Product Details Scraping Failed:", err.message),

@@ -96,6 +96,7 @@ async function autoScrapeMultiPage(
     profitPercentage = 20,
     headless = true,
     authFile = DEFAULT_AUTH,
+    concurrency = 4,
   } = options;
 
   const startPage = getStartPageFromUrl(url);
@@ -208,6 +209,7 @@ async function autoScrapeMultiPage(
           outputFile: pageOutputFile,
           headless,
           authFile,
+          concurrency,
         },
         (msg, type) => log(`[Page ${pageNum} Details] ${msg}`, type),
         (curr, tot, text, item) =>

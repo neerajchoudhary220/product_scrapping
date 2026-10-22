@@ -348,6 +348,16 @@
                   </div>
 
                   <div class="form-group">
+                    <label for="auto-concurrency"><i class="fa-solid fa-bolt text-gold"></i> Speed / Workers</label>
+                    <select id="auto-concurrency" class="form-control" style="margin-top: 6px;">
+                      <option value="2">2 Workers (Fast)</option>
+                      <option value="4" selected>4 Workers (Turbo Speed - Recommended)</option>
+                      <option value="6">6 Workers (High Concurrency)</option>
+                      <option value="8">8 Workers (Extreme Speed)</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group">
                     <label><i class="fa-solid fa-eye-slash text-purple"></i> Browser Mode</label>
                     <div class="toggle-container" style="margin-top: 6px;">
                       <input type="checkbox" id="auto-headless" class="toggle-input" checked>
@@ -441,14 +451,27 @@
                   </div>
                 </div>
 
-                <div class="form-group">
-                  <label><i class="fa-solid fa-eye-slash text-purple"></i> Browser Mode</label>
-                  <div class="toggle-container">
-                    <input type="checkbox" id="details-headless" class="toggle-input" checked>
-                    <label for="details-headless" class="toggle-label">
-                      <span class="toggle-ball"></span>
-                    </label>
-                    <span class="toggle-text" id="details-headless-text">Headless (Background)</span>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="details-concurrency"><i class="fa-solid fa-bolt text-gold"></i> Speed / Parallel Workers</label>
+                    <select id="details-concurrency" class="form-control">
+                      <option value="1">1 Worker (Safe / Sequential)</option>
+                      <option value="2">2 Workers (2x Speed)</option>
+                      <option value="4" selected>4 Workers (Turbo Speed - Recommended)</option>
+                      <option value="6">6 Workers (High Concurrency)</option>
+                      <option value="8">8 Workers (Extreme Speed)</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group">
+                    <label><i class="fa-solid fa-eye-slash text-purple"></i> Browser Mode</label>
+                    <div class="toggle-container" style="margin-top: 6px;">
+                      <input type="checkbox" id="details-headless" class="toggle-input" checked>
+                      <label for="details-headless" class="toggle-label">
+                        <span class="toggle-ball"></span>
+                      </label>
+                      <span class="toggle-text" id="details-headless-text">Headless (Background)</span>
+                    </div>
                   </div>
                 </div>
 

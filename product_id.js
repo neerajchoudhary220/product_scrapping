@@ -58,6 +58,16 @@ async function scrapeProductIds(options = {}, onLog = console.log, onProgress = 
     }
 
     const context = await browser.newContext(contextOptions);
+
+    // Abort heavy media/image/font assets for faster navigation
+    await context.route("**/*", (route) => {
+      const resourceType = route.request().resourceType();
+      if (["image", "media", "font"].includes(resourceType)) {
+        return route.abort();
+      }
+      return route.continue();
+    });
+
     const page = await context.newPage();
 
     if (shouldStop()) throw new Error("Task cancelled by user");
