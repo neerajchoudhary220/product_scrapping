@@ -8,6 +8,7 @@ const XLSX = require("xlsx");
 const AdmZip = require("adm-zip");
 const { chromium } = require("playwright");
 const taskRunnerManager = require("./lib/runner");
+const { generateSqlDump } = require("./lib/sql_generator");
 
 // Parse PORT from process.env or command-line args (e.g. --port 8090 or -p 8090)
 function getPort() {
@@ -361,6 +362,59 @@ app.get("/api/files/:filename/excel", (req, res) => {
   }
 });
 
+// Categories list helper for UI dropdown
+app.get("/api/categories", (req, res) => {
+  const defaultCategories = [
+    { id: 1, name: "Electronics", slug: "electronics" },
+    { id: 2, name: "Fashion", slug: "fashion" },
+    { id: 3, name: "Home & Kitchen", slug: "home-kitchen" },
+    { id: 4, name: "Beauty", slug: "beauty" },
+    { id: 5, name: "Grocery", slug: "grocery" },
+    { id: 6, name: "Sports", slug: "sports" },
+    { id: 7, name: "Mobiles", slug: "mobiles" },
+    { id: 8, name: "Accessories", slug: "accessories" },
+    { id: 9, name: "test-category", slug: "test-category" },
+  ];
+  res.json({ categories: defaultCategories });
+});
+
+// Export JSON Dataset as Raw MySQL SQL file (.sql) matching Laravel ImportProductsJob
+app.get("/api/files/:filename/sql", (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = resolveFilePath(filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("File not found");
+    }
+
+    const categoryId = parseInt(req.query.categoryId, 10) || 3;
+    const supplierId = parseInt(req.query.supplierId, 10) || 1;
+    const updateMode = req.query.updateMode || (req.query.onlyUpdateStock === "true" && req.query.updatePrice === "false" ? "stock_only" : "stock_and_price");
+
+    const content = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(content);
+    const sqlContent = generateSqlDump(data, {
+      categoryId,
+      supplierId,
+      sourceFile: filename,
+      updateMode,
+    });
+
+    const baseName = filename.replace(/\.json$/i, "");
+    const sqlFilename = `${baseName}_cat${categoryId}.sql`;
+
+    res.setHeader("Content-Type", "application/sql; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sqlFilename}"`,
+    );
+    res.send(sqlContent);
+  } catch (error) {
+    res.status(500).send(`SQL Export Error: ${error.message}`);
+  }
+});
+
 // Read specific JSON file content
 app.get("/api/files/:filename", (req, res) => {
   try {
@@ -578,6 +632,114 @@ app.post("/api/files/bulk-download/combined-excel", (req, res) => {
       `attachment; filename="combined_export_${Date.now()}.xlsx"`,
     );
     res.send(excelBuffer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Download Multiple JSON Files converted to MySQL (.sql) inside a ZIP archive
+app.post("/api/files/bulk-download/sql", (req, res) => {
+  try {
+    const {
+      filenames,
+      categoryId = 3,
+      supplierId = 1,
+      updateMode = "stock_and_price",
+    } = req.body;
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ error: "Filenames array is required" });
+    }
+
+    const zip = new AdmZip();
+    let addedCount = 0;
+
+    filenames.forEach((rawName) => {
+      const filename = path.basename(rawName);
+      const filePath = resolveFilePath(filename);
+      if (fs.existsSync(filePath)) {
+        try {
+          const content = fs.readFileSync(filePath, "utf8");
+          const data = JSON.parse(content);
+          const sqlContent = generateSqlDump(data, {
+            categoryId,
+            supplierId,
+            sourceFile: filename,
+            updateMode,
+          });
+          const sqlFilename = filename.replace(/\.json$/i, `.sql`);
+          zip.addFile(sqlFilename, Buffer.from(sqlContent, "utf8"));
+          addedCount++;
+        } catch (err) {
+          // Skip unparseable files
+        }
+      }
+    });
+
+    if (addedCount === 0) {
+      return res.status(404).json({ error: "No valid files found to export" });
+    }
+
+    const zipBuffer = zip.toBuffer();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="selected_sql_files_cat${categoryId}_${Date.now()}.zip"`,
+    );
+    res.send(zipBuffer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk Export Combined MySQL SQL Dump (All selected JSON datasets into one master .sql file)
+app.post("/api/files/bulk-download/combined-sql", (req, res) => {
+  try {
+    const {
+      filenames,
+      categoryId = 3,
+      supplierId = 1,
+      updateMode = "stock_and_price",
+    } = req.body;
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      return res.status(400).json({ error: "Filenames array is required" });
+    }
+
+    const allProducts = [];
+    filenames.forEach((rawName) => {
+      const filename = path.basename(rawName);
+      const filePath = resolveFilePath(filename);
+      if (fs.existsSync(filePath)) {
+        try {
+          const content = fs.readFileSync(filePath, "utf8");
+          const data = JSON.parse(content);
+          if (Array.isArray(data)) {
+            allProducts.push(...data);
+          } else if (data && typeof data === "object") {
+            allProducts.push(data);
+          }
+        } catch (err) {}
+      }
+    });
+
+    if (allProducts.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "No valid products found to combine" });
+    }
+
+    const sqlContent = generateSqlDump(allProducts, {
+      categoryId,
+      supplierId,
+      sourceFile: `combined_${filenames.length}_files.json`,
+      updateMode,
+    });
+
+    res.setHeader("Content-Type", "application/sql; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="combined_export_cat${categoryId}_${Date.now()}.sql"`,
+    );
+    res.send(sqlContent);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

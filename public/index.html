@@ -260,10 +260,11 @@
                     <button class="btn btn-outline-primary btn-sm dropdown-toggle" id="btn-bulk-download-menu">
                       <i class="fa-solid fa-download"></i> Download Selected (<span id="bulk-download-count">0</span>) <i class="fa-solid fa-chevron-down" style="font-size: 10px; margin-left: 4px;"></i>
                     </button>
-                    <div class="dropdown-menu-custom" id="bulk-download-dropdown" style="display: none;">
                       <button class="dropdown-item-custom" id="btn-bulk-dl-json"><i class="fa-solid fa-file-zipper text-cyan"></i> Download JSON (ZIP)</button>
                       <button class="dropdown-item-custom" id="btn-bulk-dl-excel-zip"><i class="fa-solid fa-file-excel text-emerald"></i> Download Excel (ZIP)</button>
                       <button class="dropdown-item-custom" id="btn-bulk-dl-excel-combined"><i class="fa-solid fa-table text-purple"></i> Combined Excel (.xlsx)</button>
+                      <button class="dropdown-item-custom" id="btn-bulk-dl-sql-zip"><i class="fa-solid fa-database text-gold"></i> Download MySQL SQL (ZIP)</button>
+                      <button class="dropdown-item-custom" id="btn-bulk-dl-sql-combined"><i class="fa-solid fa-server text-cyan"></i> Combined MySQL SQL (.sql)</button>
                     </div>
                   </div>
                   <button class="btn btn-outline-danger btn-sm" id="btn-bulk-delete-files" style="display: none;">
@@ -571,6 +572,7 @@
                   <button class="btn btn-secondary btn-sm" id="btn-copy-json"><i class="fa-solid fa-copy"></i> Copy</button>
                   <button class="btn btn-secondary btn-sm" id="btn-download-json"><i class="fa-solid fa-download"></i> Download</button>
                   <a class="btn btn-success btn-sm" id="btn-export-excel" style="display: none;"><i class="fa-solid fa-file-excel"></i> Export Excel</a>
+                  <button class="btn btn-warning btn-sm" id="btn-export-sql" style="display: none;"><i class="fa-solid fa-database"></i> Export MySQL SQL</button>
                   <button class="btn btn-primary btn-sm" id="btn-save-json"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
                   <button class="btn btn-danger btn-sm" id="btn-delete-json" style="display: none;"><i class="fa-solid fa-trash-can"></i> Delete File</button>
                 </div>
@@ -703,6 +705,75 @@
       </div>
     </div>
   </aside>
+
+  <!-- MODAL: EXPORT RAW MYSQL SQL -->
+  <div class="modal-backdrop-custom" id="modal-export-sql">
+    <div class="modal-content-custom">
+      <div class="modal-header-custom">
+        <h3><i class="fa-solid fa-database"></i> Export MySQL Raw SQL</h3>
+        <button class="modal-close-btn" id="btn-close-modal-sql">&times;</button>
+      </div>
+      <div class="modal-body-custom">
+        <div class="modal-notice-box">
+          <i class="fa-solid fa-shield-halved" style="font-size: 18px; color: var(--color-gold); margin-top: 2px;"></i>
+          <div>
+            <strong style="color: #fff;">Laravel Stock, Price & Import Synchronization:</strong><br>
+            Matches by <code>(supplier_id, supplier_product_id)</code> OR <code>title</code>.<br>
+            • <strong style="color: var(--color-cyan);">Existing products</strong>: <strong>Stock & Price</strong> fields are updated (<code>stock</code>, <code>stock_quantity</code>, <code>price</code>, <code>supplier_price</code>, <code>profit_amt</code>, <code>original_price</code>, <code>discount</code>, shipping/cod/tax charges & timestamps). Title, images, description & category remain untouched.<br>
+            • <strong style="color: var(--color-emerald);">New products</strong>: Inserted with generated slug, parsed description sections, and the selected <code>category_id</code>.
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); padding: 10px 12px; border-radius: 6px;">
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 13px; color: var(--text-primary); margin: 0;">
+            <input type="checkbox" id="modal-sql-stock-price-only" checked style="accent-color: var(--color-cyan); width: 16px; height: 16px; margin-top: 2px;">
+            <span>
+              <strong>Existing Products: Update Stock & Prices Only</strong><br>
+              <small style="color: var(--text-dim);">Updates stock, quantities, selling prices, supplier cost, discounts & charges. Leaves title, images, description & category untouched.</small>
+            </span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label for="modal-sql-category-select"><i class="fa-solid fa-tags text-gold"></i> Target Category ID (Applied to all items in file)</label>
+          <select id="modal-sql-category-select" class="form-control" style="margin-bottom: 8px;">
+            <option value="3" selected>Category 3: Home & Kitchen</option>
+            <option value="1">Category 1: Electronics</option>
+            <option value="2">Category 2: Fashion</option>
+            <option value="4">Category 4: Beauty</option>
+            <option value="5">Category 5: Grocery</option>
+            <option value="6">Category 6: Sports</option>
+            <option value="7">Category 7: Mobiles</option>
+            <option value="8">Category 8: Accessories</option>
+            <option value="9">Category 9: test-category</option>
+            <option value="custom">-- Enter Custom Category ID --</option>
+          </select>
+          <div id="modal-sql-custom-cat-row" style="display: none; margin-top: 6px;">
+            <input type="number" id="modal-sql-custom-cat-input" class="form-control" min="1" placeholder="Enter custom Category ID (e.g. 10)">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="flex: 1;">
+            <label for="modal-sql-supplier-id"><i class="fa-solid fa-truck-ramp-box text-cyan"></i> Supplier ID</label>
+            <input type="number" id="modal-sql-supplier-id" class="form-control" min="1" value="1">
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label><i class="fa-solid fa-file-code text-purple"></i> Target Mode</label>
+            <div style="font-size: 12px; color: var(--text-dim); padding: 10px 0;">
+              <span id="modal-sql-target-label" style="color: var(--color-cyan); font-weight: 600;">Single File</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer-custom">
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-modal-sql">Cancel</button>
+        <button type="button" class="btn btn-warning btn-sm" id="btn-confirm-modal-sql">
+          <i class="fa-solid fa-download"></i> Download Raw SQL (.sql)
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- TOAST NOTIFICATIONS CONTAINER -->
   <div class="toast-container" id="toast-container"></div>

@@ -728,7 +728,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Helper for Bulk Download APIs
-  async function handleBulkDownload(endpoint, defaultFilename) {
+  async function handleBulkDownload(endpoint, defaultFilename, extraBody = {}) {
     const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
     const selectedFiles = Array.from(checkedBoxes).map(chk => chk.getAttribute("data-filename"));
 
@@ -746,7 +746,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filenames: selectedFiles }),
+        body: JSON.stringify({ filenames: selectedFiles, ...extraBody }),
       });
 
       if (!res.ok) {
@@ -804,6 +804,148 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const btnBulkDlSqlZip = document.getElementById("btn-bulk-dl-sql-zip");
+  if (btnBulkDlSqlZip) {
+    btnBulkDlSqlZip.addEventListener("click", () => {
+      const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
+      const selectedFiles = Array.from(checkedBoxes).map(chk => chk.getAttribute("data-filename"));
+      if (!selectedFiles.length) {
+        showToast("Please select at least one file.", "warn");
+        return;
+      }
+      if (bulkDownloadDropdown) bulkDownloadDropdown.style.display = "none";
+      openSqlExportModal("bulk-zip", selectedFiles);
+    });
+  }
+
+  const btnBulkDlSqlCombined = document.getElementById("btn-bulk-dl-sql-combined");
+  if (btnBulkDlSqlCombined) {
+    btnBulkDlSqlCombined.addEventListener("click", () => {
+      const checkedBoxes = document.querySelectorAll(".chk-select-file:checked");
+      const selectedFiles = Array.from(checkedBoxes).map(chk => chk.getAttribute("data-filename"));
+      if (!selectedFiles.length) {
+        showToast("Please select at least one file.", "warn");
+        return;
+      }
+      if (bulkDownloadDropdown) bulkDownloadDropdown.style.display = "none";
+      openSqlExportModal("bulk-combined", selectedFiles);
+    });
+  }
+
+  // State for SQL Export Modal
+  let activeSqlExportConfig = {
+    mode: "single", // 'single' | 'bulk-zip' | 'bulk-combined'
+    target: null, // filename string or array of filenames
+  };
+
+  function openSqlExportModal(mode, target) {
+    activeSqlExportConfig = { mode, target };
+    const modal = document.getElementById("modal-export-sql");
+    const targetLabel = document.getElementById("modal-sql-target-label");
+
+    if (targetLabel) {
+      if (mode === "single") {
+        targetLabel.textContent = `File: ${target}`;
+      } else if (mode === "bulk-zip") {
+        targetLabel.textContent = `Bulk ZIP (${target.length} files)`;
+      } else if (mode === "bulk-combined") {
+        targetLabel.textContent = `Combined SQL (${target.length} files)`;
+      }
+    }
+
+    const catSelect = document.getElementById("modal-sql-category-select");
+    const customCatRow = document.getElementById("modal-sql-custom-cat-row");
+    const customCatInput = document.getElementById("modal-sql-custom-cat-input");
+    const stockPriceCheckbox = document.getElementById("modal-sql-stock-price-only");
+    if (catSelect) catSelect.value = "3";
+    if (customCatRow) customCatRow.style.display = "none";
+    if (customCatInput) customCatInput.value = "";
+    if (stockPriceCheckbox) stockPriceCheckbox.checked = true;
+
+    if (modal) {
+      modal.classList.add("active");
+    }
+  }
+
+  function closeSqlExportModal() {
+    const modal = document.getElementById("modal-export-sql");
+    if (modal) {
+      modal.classList.remove("active");
+    }
+  }
+
+  // Modal event listeners
+  const btnCloseModalSql = document.getElementById("btn-close-modal-sql");
+  const btnCancelModalSql = document.getElementById("btn-cancel-modal-sql");
+  const btnConfirmModalSql = document.getElementById("btn-confirm-modal-sql");
+  const modalSqlCatSelect = document.getElementById("modal-sql-category-select");
+  const modalSqlBackdrop = document.getElementById("modal-export-sql");
+
+  if (btnCloseModalSql) btnCloseModalSql.addEventListener("click", closeSqlExportModal);
+  if (btnCancelModalSql) btnCancelModalSql.addEventListener("click", closeSqlExportModal);
+
+  if (modalSqlBackdrop) {
+    modalSqlBackdrop.addEventListener("click", (e) => {
+      if (e.target === modalSqlBackdrop) closeSqlExportModal();
+    });
+  }
+
+  if (modalSqlCatSelect) {
+    modalSqlCatSelect.addEventListener("change", (e) => {
+      const customRow = document.getElementById("modal-sql-custom-cat-row");
+      if (customRow) {
+        customRow.style.display = e.target.value === "custom" ? "block" : "none";
+      }
+    });
+  }
+
+  if (btnConfirmModalSql) {
+    btnConfirmModalSql.addEventListener("click", () => {
+      const catSelect = document.getElementById("modal-sql-category-select");
+      const customCatInput = document.getElementById("modal-sql-custom-cat-input");
+      const supplierInput = document.getElementById("modal-sql-supplier-id");
+
+      let categoryId = 3;
+      if (catSelect && catSelect.value === "custom") {
+        categoryId = parseInt(customCatInput?.value, 10);
+        if (!categoryId || categoryId < 1) {
+          showToast("Please enter a valid numeric Category ID.", "warn");
+          if (customCatInput) customCatInput.focus();
+          return;
+        }
+      } else if (catSelect) {
+        categoryId = parseInt(catSelect.value, 10) || 3;
+      }
+
+      const supplierId = parseInt(supplierInput?.value, 10) || 1;
+      const stockPriceCheckbox = document.getElementById("modal-sql-stock-price-only");
+      const isStockPriceOnly = stockPriceCheckbox ? stockPriceCheckbox.checked : true;
+      const updateMode = isStockPriceOnly ? "stock_and_price" : "full";
+      const { mode, target } = activeSqlExportConfig;
+
+      closeSqlExportModal();
+
+      if (mode === "single") {
+        showToast(`Generating MySQL Raw SQL for ${target} (Category: ${categoryId})...`, "info");
+        window.location.href = `/api/files/${encodeURIComponent(target)}/sql?categoryId=${categoryId}&supplierId=${supplierId}&updateMode=${updateMode}`;
+      } else if (mode === "bulk-zip") {
+        showToast(`Generating MySQL SQL ZIP for ${target.length} files (Category: ${categoryId})...`, "info");
+        handleBulkDownload("/api/files/bulk-download/sql", `selected_sql_files_cat${categoryId}.zip`, {
+          categoryId,
+          supplierId,
+          updateMode,
+        });
+      } else if (mode === "bulk-combined") {
+        showToast(`Generating Combined MySQL SQL for ${target.length} files (Category: ${categoryId})...`, "info");
+        handleBulkDownload("/api/files/bulk-download/combined-sql", `combined_export_cat${categoryId}.sql`, {
+          categoryId,
+          supplierId,
+          updateMode,
+        });
+      }
+    });
+  }
+
   function renderDashboardFilesTable(files) {
     const tbody = document.querySelector("#dashboard-files-table tbody");
     if (!files.length) {
@@ -837,6 +979,9 @@ document.addEventListener("DOMContentLoaded", () => {
               <a href="/api/files/${encodeURIComponent(f.name)}/excel" download="${f.name.replace(/\.json$/i, '.xlsx')}" class="btn btn-success btn-sm" title="Export Excel Spreadsheet">
                 <i class="fa-solid fa-file-excel"></i> Excel
               </a>
+              <button class="btn btn-warning btn-sm btn-export-sql-table" data-filename="${f.name}" title="Export Raw MySQL SQL (.sql)">
+                <i class="fa-solid fa-database"></i> SQL
+              </button>
               ${isProtected 
                 ? `<span class="badge-item-count text-gold" style="font-size: 11px;"><i class="fa-solid fa-lock"></i> Read Only</span>`
                 : `<button class="btn btn-danger btn-sm btn-delete-file-table" data-filename="${f.name}" title="Delete file">
@@ -854,6 +999,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const fn = btn.getAttribute("data-filename");
         switchTab("tab-json-studio");
         loadJsonFile(fn);
+      });
+    });
+
+    tbody.querySelectorAll(".btn-export-sql-table").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const fn = btn.getAttribute("data-filename");
+        openSqlExportModal("single", fn);
       });
     });
 
@@ -1059,6 +1212,14 @@ document.addEventListener("DOMContentLoaded", () => {
       btnExportExcel.style.display = "inline-flex";
     }
 
+    const btnExportSql = document.getElementById("btn-export-sql");
+    if (btnExportSql) {
+      btnExportSql.style.display = isProtected ? "none" : "inline-flex";
+      btnExportSql.onclick = () => {
+        openSqlExportModal("single", filename);
+      };
+    }
+
     try {
       const res = await fetch(`/api/files/${encodeURIComponent(filename)}`);
       const fileRes = await res.json();
@@ -1109,6 +1270,9 @@ document.addEventListener("DOMContentLoaded", () => {
           jsonTreeView.innerHTML = `<div class="placeholder-text">Select a JSON file from the left sidebar to view content</div>`;
           jsonTextarea.value = "";
           if (btnDeleteJson) btnDeleteJson.style.display = "none";
+          if (btnExportExcel) btnExportExcel.style.display = "none";
+          const btnExportSql = document.getElementById("btn-export-sql");
+          if (btnExportSql) btnExportSql.style.display = "none";
         }
         fetchFiles();
       } else {
