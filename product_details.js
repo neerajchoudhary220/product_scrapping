@@ -272,7 +272,7 @@ function generateKeywords(
 /**
  * Extracts all product details in a single in-browser evaluation pass for speed
  */
-async function extractProductFromPage(page, productId) {
+async function extractProductFromPage(page, productId, profitPercentage = null) {
   const productUrl = `${BASE_URL}/merchant/product-details/${productId}`;
 
   await page.goto(productUrl, {
@@ -463,12 +463,35 @@ async function extractProductFromPage(page, productId) {
     extracted.descriptionData.parsed,
   );
 
+  let profit_percentage = undefined;
+  let profit_amount = undefined;
+  let final_price = undefined;
+
+  if (profitPercentage !== null && profitPercentage !== undefined) {
+    const rawPrice = extracted.price;
+    if (rawPrice) {
+      const cleaned = String(rawPrice).replace(/[₹,\s]/g, "").trim();
+      const num = parseFloat(cleaned);
+      if (!Number.isNaN(num) && num > 0) {
+        const margin = Number(profitPercentage);
+        profit_percentage = margin;
+        profit_amount = Number(((num * margin) / 100).toFixed(2));
+        final_price = Number((num + profit_amount).toFixed(2));
+      }
+    }
+  }
+
   return {
     deo_dap_product_id: String(productId),
     product_url: productUrl,
     title: extracted.title || null,
     keywords: keywords || null,
     price: extracted.price || null,
+    ...(profit_percentage !== undefined ? {
+      profit_percentage,
+      profit_amount,
+      final_price,
+    } : {}),
     stock: extracted.stock || null,
     weight: extracted.weight || null,
     supplier_rating: extracted.supplierRating || null,
@@ -510,6 +533,7 @@ async function scrapeProductDetails(
     headless = true,
     authFile = DEFAULT_AUTH,
     concurrency = 4,
+    profitPercentage = 20,
   } = options;
 
   const targetInputFile = resolveDataPath(inputFile, "product_1.json");
@@ -660,6 +684,7 @@ async function scrapeProductDetails(
                 const productData = await extractProductFromPage(
                   page,
                   productId,
+                  profitPercentage,
                 );
                 products.push(productData);
                 alreadyScrapedMap.set(productId, true);

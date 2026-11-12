@@ -56,6 +56,7 @@ Follow on-screen instructions to log into wukusy.app and save the browser storag
 - **Socket.IO Logging**: Pass `onLog(message, type)` and `onProgress(current, total, statusText, item)` callbacks in scraper functions so the frontend receives real-time updates.
 - **Error Handling**: Wrap Playwright network requests in `try...catch` blocks to handle temporary DOM changes, timeouts, or selector updates gracefully without crashing the task runner.
 - **Browser Context Cleanup**: Ensure browser instances and pages are closed in `finally` blocks.
+- **Profit Calculation Fallback**: Both `product_details.js` and `update_price.js` implement fallback pricing (`applyFallbackPricing`). If cart lookup or category item matching fails, profit and final prices are automatically calculated from the base product price, guaranteeing zero blank cells in Excel exports.
 
 ---
 

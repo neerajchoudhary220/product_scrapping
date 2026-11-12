@@ -32,6 +32,24 @@ function parsePrice(price) {
   return Number.isNaN(number) ? null : number;
 }
 
+function applyFallbackPricing(product, profitPercentage) {
+  const basePrice = parsePrice(product.price);
+  if (basePrice !== null && basePrice > 0) {
+    const profitMargin = Number(profitPercentage) || 0;
+    const profitAmount = Number(((basePrice * profitMargin) / 100).toFixed(2));
+    const finalPrice = Number((basePrice + profitAmount).toFixed(2));
+    return {
+      ...product,
+      price: basePrice,
+      profit_percentage: profitMargin,
+      profit_amount: profitAmount,
+      final_price: finalPrice,
+      updated_at: new Date().toISOString(),
+    };
+  }
+  return product;
+}
+
 async function getPrice(page, locator) {
   const element = page.locator(locator).first();
 
@@ -245,20 +263,22 @@ async function updateProductPrices(
 
         log(`Step 3: Locating product card for ID ${productId}...`);
         const productLink = page.locator(
-          `.product-card a[href="/merchant/product-details/${productId}"]`,
+          `.product-card a[href*="/merchant/product-details/${productId}"]`,
         );
         const productCount = await productLink.count();
 
         if (productCount === 0) {
           log(
-            `⚠️ Product ${productId} not found on category page. Skipping...`,
+            `⚠️ Product ${productId} not found on category page. Applying fallback profit (${profitPercentage}%)...`,
             "warn",
           );
+          products[index] = applyFallbackPricing(product, profitPercentage);
+          saveProducts(targetInputFile, products);
           completedCount++;
           onProgress(
             completedCount,
             total,
-            `Skipped ID ${productId} (Not found on page)`,
+            `Fallback profit applied for ID ${productId}`,
             productId,
           );
           continue;
@@ -271,14 +291,16 @@ async function updateProductPrices(
 
         if ((await addToCartButton.count()) === 0) {
           log(
-            `⚠️ Add To Cart button missing for ${productId}. Skipping...`,
+            `⚠️ Add To Cart button missing for ${productId}. Applying fallback profit (${profitPercentage}%)...`,
             "warn",
           );
+          products[index] = applyFallbackPricing(product, profitPercentage);
+          saveProducts(targetInputFile, products);
           completedCount++;
           onProgress(
             completedCount,
             total,
-            `Skipped ID ${productId} (No button)`,
+            `Fallback profit applied for ID ${productId}`,
             productId,
           );
           continue;
@@ -368,9 +390,11 @@ async function updateProductPrices(
         );
       } catch (error) {
         log(
-          `❌ Error processing Product ${productId}: ${error.message}`,
+          `❌ Error processing Product ${productId}: ${error.message}. Applying fallback pricing...`,
           "error",
         );
+        products[index] = applyFallbackPricing(product, profitPercentage);
+        saveProducts(targetInputFile, products);
         try {
           if (!page.isClosed()) await clearCart(page, log);
         } catch (cleanupErr) {
@@ -381,6 +405,25 @@ async function updateProductPrices(
       completedCount++;
       onProgress(completedCount, total, `Completed ID ${productId}`, productId);
       if (!page.isClosed()) await page.waitForTimeout(200);
+    }
+
+    // Safety pass: ensure any product that somehow has missing profit fields gets fallback pricing
+    let missingProfitCount = 0;
+    for (let i = 0; i < products.length; i++) {
+      if (
+        products[i].profit_percentage === undefined ||
+        products[i].final_price === undefined
+      ) {
+        products[i] = applyFallbackPricing(products[i], profitPercentage);
+        missingProfitCount++;
+      }
+    }
+    if (missingProfitCount > 0) {
+      saveProducts(targetInputFile, products);
+      log(
+        `🛡️ Applied fallback pricing to ${missingProfitCount} product(s) with missing profit margins.`,
+        "info",
+      );
     }
 
     await browser.close();

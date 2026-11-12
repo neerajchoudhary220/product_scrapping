@@ -960,10 +960,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const outputFile = document.getElementById("details-output-file").value.trim();
     const headless = document.getElementById("details-headless").checked;
     const concurrency = Number(document.getElementById("details-concurrency")?.value) || 4;
+    const profitPercentage = Number(document.getElementById("details-profit-margin")?.value) || 20;
 
     socket.emit("start-task", {
       taskType: "scrape-details",
-      payload: { inputFile, outputFile, headless, concurrency }
+      payload: { inputFile, outputFile, headless, concurrency, profitPercentage }
     });
   });
 

@@ -210,6 +210,7 @@ async function autoScrapeMultiPage(
           headless,
           authFile,
           concurrency,
+          profitPercentage,
         },
         (msg, type) => log(`[Page ${pageNum} Details] ${msg}`, type),
         (curr, tot, text, item) =>

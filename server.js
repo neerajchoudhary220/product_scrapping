@@ -288,9 +288,56 @@ app.get("/api/files", (req, res) => {
 // Helper to convert JSON data array or object into Excel rows format
 function jsonToRows(data) {
   if (Array.isArray(data)) {
+    // Detect dataset's profit margin if any item has it, else default to 20%
+    const detectedProfitMargin =
+      data.find(
+        (d) =>
+          d &&
+          d.profit_percentage !== undefined &&
+          d.profit_percentage !== null &&
+          d.profit_percentage !== "",
+      )?.profit_percentage ?? 20;
+
     return data.map((item, idx) => {
       if (typeof item !== "object" || item === null) {
         return { Index: idx + 1, "Supplier Product ID": String(item) };
+      }
+
+      const rawPrice = item.price;
+      const numPrice =
+        typeof rawPrice === "number"
+          ? rawPrice
+          : parseFloat(String(rawPrice || "").replace(/[₹,\s]/g, "")) || 0;
+
+      let profitPct =
+        item.profit_percentage !== undefined &&
+        item.profit_percentage !== null &&
+        item.profit_percentage !== ""
+          ? item.profit_percentage
+          : numPrice > 0
+            ? detectedProfitMargin
+            : "";
+      let profitAmt =
+        item.profit_amount !== undefined &&
+        item.profit_amount !== null &&
+        item.profit_amount !== ""
+          ? item.profit_amount
+          : "";
+      let finalPr =
+        item.final_price !== undefined &&
+        item.final_price !== null &&
+        item.final_price !== ""
+          ? item.final_price
+          : "";
+
+      // Fallback: If finalPrice is empty but we have price and profit%, calculate it
+      if (
+        (finalPr === "" || finalPr === null) &&
+        profitPct !== "" &&
+        numPrice > 0
+      ) {
+        profitAmt = Number(((numPrice * Number(profitPct)) / 100).toFixed(2));
+        finalPr = Number((numPrice + profitAmt).toFixed(2));
       }
 
       return {
@@ -298,9 +345,9 @@ function jsonToRows(data) {
         Title: item.title || "",
         Keywords: item.keywords || "",
         Price: item.price || "",
-        "Profit %": item.profit_percentage || "",
-        "Profit Amount": item.profit_amount || "",
-        "Final Price": item.final_price || "",
+        "Profit %": profitPct,
+        "Profit Amount": profitAmt,
+        "Final Price": finalPr,
         Stock: item.stock || "",
         Weight: item.weight || "",
         "Supplier Rating": item.supplier_rating || "",
